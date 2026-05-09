@@ -1,4 +1,4 @@
-.PHONY: help venv prepare test test-verbose run lint clean
+.PHONY: help venv prepare test test-verbose run run-check run-agent lint clean
 
 VENV := .venv
 PYTHON := $(VENV)/bin/python
@@ -30,7 +30,18 @@ test-verbose: venv
 	@"$(PYTEST)" -v
 
 run: venv
+	@echo "Running with automatic mode detection (safe in automation contexts)..."
 	@"$(PYTHON)" -m aws_sso_autologin --log-level debug
+
+# Add explicit check-only target for scripts that want it explicitly
+run-check: venv
+	@echo "Running in check-only mode..."
+	@"$(PYTHON)" -m aws_sso_autologin --check-only --log-level debug
+
+# Add automation-safe run target with explicit watchdog
+run-agent: venv
+	@echo "Running in agent-safe mode with watchdog timeout..."
+	@AWS_SSO_AUTOLOGIN_WATCHDOG=1 AWS_SSO_AUTOLOGIN_TIMEOUT=60 "$(PYTHON)" -m aws_sso_autologin --check-only --log-level debug
 
 lint: venv
 	@printf "No linter configured yet.\n"
