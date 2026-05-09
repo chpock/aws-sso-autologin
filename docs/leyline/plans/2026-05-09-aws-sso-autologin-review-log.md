@@ -719,3 +719,58 @@ Exit code: 0
 
 Code review complete - round 4 - 2026-05-09
 Design review complete - round 3 - 2026-05-09
+
+## Systematic-debugging record - diagnostics dialog not shown
+
+### Record - Error dialog not displayed when clicking error menu item
+- Root cause (one sentence, plain English): `AutologinApp._on_show_diagnostics` callback was registered with `StatusTray` but only logged errors without displaying the `ErrorDetailsDialog`.
+- Falsifying test: `pytest tests/test_main.py::test_on_show_diagnostics_displays_error_dialog -v` failed because `ErrorDetailsDialog` was neither imported nor instantiated in `__main__.py`.
+- Hypothesis: If `_on_show_diagnostics` imports and shows `ErrorDetailsDialog`, clicking the error menu item will display the diagnostic window as expected.
+- Fix: Added `ErrorDetailsDialog` import and dialog instantiation/show in `_on_show_diagnostics` method.
+- Regression coverage: `pytest tests/test_main.py::test_on_show_diagnostics_displays_error_dialog -v` (pass), `make test` (199 passed).
+
+### Record 2 - Dialog destroyed by GC / not shown properly
+- Root cause (one sentence, plain English): `ErrorDetailsDialog` was created as a local variable in `_on_show_diagnostics`, causing it to be garbage-collected immediately; also `show()` doesn't block for modal dialog.
+- Falsifying test: User reported dialog still not appearing after first fix; no errors in logs.
+- Hypothesis: If dialog reference is stored in `self._details_dialog` and `exec()` is used instead of `show()`, dialog will remain alive and display modally.
+- Fix: Added `self._details_dialog` attribute to store dialog reference; changed `show()` to `exec()`; added cleanup in `shutdown()`; added exception handling and logging.
+- Regression coverage: `pytest tests/test_main.py::test_on_show_diagnostics_displays_error_dialog -v` (pass), `make test` (199 passed).
+
+### Post-implementation verification output
+
+```
+$ pytest tests/test_main.py::test_on_show_diagnostics_displays_error_dialog -v
+============================= test session starts ==============================
+platform linux -- Python 3.14.4, pytest-9.0.3, pluggy-1.6.0
+collected 1 item
+
+tests/test_main.py::test_on_show_diagnostics_displays_error_dialog PASSED [100%]
+
+============================== 1 passed in 0.11s ===============================
+
+$ make test
+============================= test session starts ==============================
+platform linux -- Python 3.14.4, pytest-9.0.3, pluggy-1.6.0
+collected 199 items
+
+tests/test_aws.py ...................                                   [  9%]
+tests/test_checker.py ....                                               [ 11%]
+tests/test_classifier.py .                                               [ 12%]
+tests/test_cli.py ..                                                     [ 13%]
+tests/test_cli_integration.py ......                                     [ 16%]
+tests/test_constants.py .........                                        [ 20%]
+tests/test_daemon_marker.py ....                                         [ 22%]
+tests/test_integration_policy.py .......                                 [ 26%]
+tests/test_logger.py ........                                            [ 30%]
+tests/test_main.py ....................................                   [ 47%]
+tests/test_mode_policy.py ........                                       [ 51%]
+tests/test_operator.py ................................                  [ 67%]
+tests/test_service.py ......................                             [ 78%]
+tests/test_settings.py ...                                               [ 80%]
+tests/test_tray.py .......................                               [ 91%]
+tests/test_version.py ..                                                 [ 92%]
+tests/test_versioning.py ....                                            [ 94%]
+tests/test_watchdog.py ..........                                        [100%]
+
+============================= 199 passed in 4.30s ===============================
+```

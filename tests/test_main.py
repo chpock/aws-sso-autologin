@@ -586,3 +586,23 @@ def test_load_profiles_sets_syncing_until_first_status_update():
     app._on_status_change("example", RenewalStatus.NOT_NEEDED, info)
     assert app._awaiting_initial_status is False
     app._tray.set_syncing.assert_called_with(False)
+
+
+def test_on_show_diagnostics_displays_error_dialog():
+    """Test that _on_show_diagnostics shows ErrorDetailsDialog to user."""
+    from aws_sso_autologin.__main__ import AutologinApp
+    from unittest.mock import patch
+
+    app = AutologinApp([])
+
+    with patch("aws_sso_autologin.__main__.ErrorDetailsDialog") as mock_dialog_class:
+        mock_dialog = MagicMock()
+        mock_dialog_class.from_text.return_value = mock_dialog
+
+        # Call the method that should show the dialog
+        app._on_show_diagnostics("Test error summary", "Test error details")
+
+        # Verify the dialog was created, stored, and executed
+        mock_dialog_class.from_text.assert_called_once()
+        assert app._details_dialog is mock_dialog
+        mock_dialog.exec.assert_called_once()

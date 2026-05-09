@@ -22,7 +22,7 @@ from aws_sso_autologin.service import (
     create_tray_host,
     detect_tray_host,
 )
-from aws_sso_autologin.tray import ProfileState, ProfileStatus, StatusTray
+from aws_sso_autologin.tray import ErrorDetailsDialog, ProfileState, ProfileStatus, StatusTray
 from aws_sso_autologin.operator import HealthOperator, SessionOperator, LoginOperator
 from aws_sso_autologin.models import (
     ProfileConfig,
@@ -150,11 +150,12 @@ class AutologinApp:
         self._is_shutting_down = False
         self._signal_shutdown_requested = False
         self._signal_handlers_installed = False
-        self._previous_signal_handlers = {}
+        self._previous_signal_handlers: dict[int, Any] = {}
         self._force_exit = os._exit
         self._tray_loss_behavior = os.getenv(
             "AWS_SSO_AUTOLOGIN_TRAY_LOSS_BEHAVIOR", "pause"
         ).strip().lower()
+        self._details_dialog: Optional[Any] = None
         
         logger.debug("AutologinApp: Initialized")
     
@@ -456,6 +457,20 @@ class AutologinApp:
         logger.error("Diagnostics requested: %s", summary)
         if details:
             logger.debug("Diagnostics details: %s", details)
+
+        logger.info("Creating ErrorDetailsDialog for summary: %s", summary)
+        try:
+            # Show the error details dialog to the user
+            self._details_dialog = ErrorDetailsDialog.from_text(
+                summary=summary,
+                details=details,
+                parent=self._app.activeWindow() if self._app else None,
+            )
+            logger.info("ErrorDetailsDialog created, showing dialog...")
+            self._details_dialog.exec()
+            logger.info("ErrorDetailsDialog closed")
+        except Exception as e:
+            logger.error("Failed to show diagnostics dialog: %s", e, exc_info=True)
     
     def _load_profiles(self) -> bool:
         """Load SSO profiles from AWS config.
@@ -693,6 +708,14 @@ class AutologinApp:
                 extra={"event": "shutdown_action", "action": "stop_signal_pump_timer"},
             )
             self._signal_pump_timer.stop()
+
+        if self._details_dialog is not None:
+            logger.info(
+                "Closing diagnostics dialog",
+                extra={"event": "shutdown_action", "action": "close_diagnostics_dialog"},
+            )
+            self._details_dialog.close()
+            self._details_dialog = None
 
         if self._tray:
             logger.info(
