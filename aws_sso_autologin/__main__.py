@@ -50,7 +50,12 @@ VALID_LOG_FORMATS = ["text", "json"]
 
 
 def _build_cli_app(state: dict[str, Any]) -> typer.Typer:
-    app = typer.Typer(add_completion=False, help="AWS SSO tray autologin")
+    app = typer.Typer(
+        add_completion=False,
+        help="AWS SSO tray autologin",
+        rich_markup_mode=None,
+        pretty_exceptions_enable=False,
+    )
 
     @app.callback(invoke_without_command=True)
     def entry(
