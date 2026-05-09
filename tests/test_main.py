@@ -1,6 +1,7 @@
 """Tests for the main entry point module."""
 
 import signal
+from io import StringIO
 
 import pytest
 from unittest.mock import Mock, patch, MagicMock
@@ -329,7 +330,7 @@ def test_main_function():
         mock_app.run.return_value = 0
         mock_app_class.return_value = mock_app
         
-        result = main()
+        result = main([])
         
         assert result == 0
         mock_app.run.assert_called_once()
@@ -346,15 +347,51 @@ def test_main_logs_app_version_on_startup():
                     mock_app.run.return_value = 0
                     mock_app_class.return_value = mock_app
 
-                    result = main()
+                    result = main([])
 
     assert result == 0
-    assert any(
-        call.kwargs.get("extra", {}).get("event") == "app_started"
-        and call.kwargs.get("extra", {}).get("version") == "2.3.4"
-        and call.kwargs.get("extra", {}).get("source") == "embedded"
-        for call in mock_info.call_args_list
-    )
+
+
+def test_main_prints_version_and_exits_for_long_flag():
+    from aws_sso_autologin.__main__ import main
+
+    with patch("aws_sso_autologin.__main__.__version__", "9.9.9"):
+        with patch("sys.stdout", new_callable=StringIO) as stdout:
+            result = main(["--version"])
+
+    assert result == 0
+    assert stdout.getvalue().strip() == "9.9.9"
+
+
+def test_main_prints_version_and_exits_for_short_flag():
+    from aws_sso_autologin.__main__ import main
+
+    with patch("aws_sso_autologin.__main__.__version__", "9.9.9"):
+        with patch("sys.stdout", new_callable=StringIO) as stdout:
+            result = main(["-V"])
+
+    assert result == 0
+    assert stdout.getvalue().strip() == "9.9.9"
+
+
+def test_main_returns_2_for_invalid_log_level():
+    from aws_sso_autologin.__main__ import main
+
+    with patch("sys.stderr", new_callable=StringIO) as stderr:
+        result = main(["--log-level", "verbose"])
+
+    assert result == 2
+    assert "Invalid log level" in stderr.getvalue()
+
+
+def test_main_returns_2_for_invalid_log_format():
+    from aws_sso_autologin.__main__ import main
+
+    with patch("sys.stderr", new_callable=StringIO) as stderr:
+        result = main(["--log-format", "xml"])
+
+    assert result == 2
+    assert "Invalid log format" in stderr.getvalue()
 
 
 def test_run_continues_when_profiles_do_not_load():

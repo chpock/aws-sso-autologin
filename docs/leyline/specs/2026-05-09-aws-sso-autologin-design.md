@@ -102,6 +102,44 @@ Trade-offs: Powerful and flexible, but introduces additional integration complex
 Implement Approach A. It matches current requirements with the best complexity-to-value ratio, keeps behavior explicit and testable, and leaves clear extension points for future features.
 
 ## Runtime behavior
+### Command-line interface contract
+- CLI parser package: `typer` (Click-based) as the primary argument interface.
+- Runtime settings are resolved through a dedicated, extensible settings resolver abstraction:
+  - supports layered sources: defaults -> config file -> environment -> CLI flags,
+  - produces one typed runtime settings object consumed by startup and logging setup,
+  - adding a new runtime option requires registering it once in the resolver schema and mapping it to sources.
+- `aws-sso-autologin --help` prints complete usage and exits with code `0`.
+- `aws-sso-autologin --version` and `aws-sso-autologin -V` print resolved app version and exit with code `0`.
+- Version string source follows existing runtime version policy (`embedded` first, fallback `0.0.0`).
+- CLI flags must override equivalent environment controls when both are present:
+  - `--log-level [error|warning|info|debug|trace]` overrides `AWS_SSO_AUTOLOGIN_DEBUG` and default logger level selection.
+  - `--log-format [text|json]` overrides default stdout log renderer selection.
+  - `--safe-mode` overrides `AWS_SSO_AUTOLOGIN_SAFE_MODE`.
+  - `--tray-loss-behavior [pause|continue]` overrides `AWS_SSO_AUTOLOGIN_TRAY_LOSS_BEHAVIOR`.
+- Log-level semantics:
+  - default level remains current runtime default (`info` unless debug env/settings are active),
+  - `debug` enables detailed operational diagnostics,
+  - `trace` enables maximum verbosity including full event-level lifecycle logs,
+  - invalid level values fail fast with actionable CLI parse error and non-zero exit.
+- Log-format semantics:
+  - default format is `text`,
+  - `text` format uses colorized output when `stdout` is a TTY and plain text when not a TTY,
+  - `json` format emits one structured JSON object per log event to stdout,
+  - invalid format values fail fast with actionable CLI parse error and non-zero exit.
+- Config-file parity for logging controls:
+  - config supports `logging.level` with values `error|warning|info|debug|trace`,
+  - config supports `logging.format` with values `text|json`,
+  - CLI overrides config-file values when both are present.
+- Add non-interactive preflight mode:
+  - `--check-only` performs startup preflight checks (tray-host compatibility and profile discovery preconditions),
+  - emits structured stdout events for pass/fail evidence,
+  - does not create tray UI or enter Qt event loop,
+  - exits `0` on successful preflight and non-zero on failure.
+- Add profile scope filter:
+  - `--profiles <name1,name2,...>` limits monitoring to explicit profile names after discovery,
+  - unknown profile names are reported as actionable warning output and ignored,
+  - if all requested names are unknown/non-SSO, app reports "No selected SSO profiles detected" and remains in idle-safe semantics.
+
 ### Application versioning and startup logging
 - Runtime version source priority is fixed:
   1. embedded package version generated during CI/CD or Linux package build,

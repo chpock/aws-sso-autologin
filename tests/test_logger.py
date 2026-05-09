@@ -4,7 +4,7 @@ import json
 import logging
 import sys
 
-from aws_sso_autologin.logger import get_logger, set_debug_mode
+from aws_sso_autologin.logger import configure_logging, get_logger, set_debug_mode
 
 
 def test_get_logger_returns_logger():
@@ -34,6 +34,7 @@ def test_set_debug_mode():
 
 
 def test_logger_uses_structured_json_formatter():
+    configure_logging(level_name="info", log_format="json")
     logger = get_logger("test_structured")
     formatter = logger.handlers[0].formatter
     record = logger.makeRecord(
@@ -54,6 +55,7 @@ def test_logger_uses_structured_json_formatter():
 
 
 def test_logger_includes_extra_fields_in_json_payload():
+    configure_logging(level_name="info", log_format="json")
     logger = get_logger("test_extra")
     formatter = logger.handlers[0].formatter
     record = logger.makeRecord(
@@ -70,3 +72,16 @@ def test_logger_includes_extra_fields_in_json_payload():
     payload = json.loads(formatter.format(record))
     assert payload["event"] == "tray_host_lost"
     assert payload["host"] == "GNOME"
+
+
+def test_configure_logging_sets_trace_level():
+    configure_logging(level_name="trace", log_format="json")
+    logger = get_logger("test_trace")
+    assert logger.level == 5
+
+
+def test_configure_logging_uses_text_formatter_by_default():
+    configure_logging(level_name="info", log_format="text")
+    logger = get_logger("test_text")
+    formatter_name = logger.handlers[0].formatter.__class__.__name__
+    assert formatter_name == "TextFormatter"

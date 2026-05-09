@@ -43,6 +43,7 @@ Chain anchors:
 Per human partner decision: **document UX limitations as V1 constraints and proceed**. Added "V1 UX Limitations" section to spec. Design-interrogation deemed complete for V1 scope.
 
 ## Surfaces enumerated
+- `CLI command surface`: startup invocation feedback for `--help`, `--version`/`-V`, and operational flags.
 - `System tray icon`: always-visible status indicator for monitoring and sync health.
 - `Tray context menu`: primary interaction surface for control and status visibility.
 - `Global control row`: first menu row for enable/disable toggle, or global error action when AWS CLI/discovery/config is unavailable/invalid, including unsupported AWS CLI version and unsupported config version cases.
@@ -52,6 +53,50 @@ Per human partner decision: **document UX limitations as V1 constraints and proc
 - `Quit row`: explicit app shutdown action.
 
 ## User flows
+### Flow 0 - CLI invocation and quick-exit modes
+1. User runs `aws-sso-autologin --help`.
+2. CLI prints usage, options, and short descriptions.
+3. Process exits `0` without creating tray surfaces.
+
+Failure path: invalid flag or malformed option value prints actionable parse error and exits non-zero.
+
+### Flow 0d - Log verbosity selection
+1. User runs `aws-sso-autologin --log-level debug` for detailed runtime diagnostics.
+2. User may run `aws-sso-autologin --log-level trace` for maximal lifecycle-level logging.
+3. Runtime applies selected verbosity before startup logging and all subsequent events.
+
+Failure path: unsupported log level prints valid choices and exits non-zero.
+
+### Flow 0e - Log format selection
+1. User runs `aws-sso-autologin --log-format text` for human-readable logs.
+2. Default behavior uses `text` logs when no format is provided.
+3. In `text` mode, runtime enables colorized output when stdout is a TTY and falls back to plain text otherwise.
+4. User runs `aws-sso-autologin --log-format json` to emit structured machine-readable logs.
+
+Failure path: unsupported log format prints valid choices and exits non-zero.
+
+### Flow 0f - Settings source precedence
+1. User sets logging options in config file (`logging.level`, `logging.format`).
+2. User optionally provides CLI overrides (`--log-level`, `--log-format`) for current run.
+3. Runtime resolves effective settings via deterministic precedence and logs effective values at startup.
+
+Failure path: invalid config value produces actionable validation error; if valid CLI override is present for the same field, runtime uses CLI value and reports config issue as warning diagnostics.
+
+### Flow 0b - Version check
+1. User runs `aws-sso-autologin --version` or `aws-sso-autologin -V`.
+2. CLI prints resolved app version.
+3. Process exits `0` without creating tray surfaces.
+
+Failure path: if version metadata is unavailable, CLI prints fallback `0.0.0` per runtime contract and exits `0`.
+
+### Flow 0c - Preflight-only operational check
+1. User runs `aws-sso-autologin --check-only`.
+2. Runtime executes tray-host and startup readiness preflight.
+3. Runtime emits structured stdout pass/fail evidence.
+4. Process exits without entering Qt event loop.
+
+Failure path: on failed preflight, runtime emits actionable reason and exits non-zero.
+
 ### Flow 1 - Startup and healthy monitoring
 1. App launches with auto-login monitoring enabled by default, unless safe mode is active via startup env/config override.
 2. App writes startup version event to structured stdout logs with `version` and `source` fields.
@@ -119,6 +164,7 @@ Preflight tray-host failure is a startup halt path; in that path tray surfaces a
 
 | Surface | Empty | Loading | Error | Success | Permission-denied | Offline |
 |---------|-------|---------|-------|---------|-------------------|---------|
+| CLI command surface | Help/version/check-only/log-level/log-format not requested | N/A - command parsing is immediate | Invalid argument/value (including unsupported `--log-level` or `--log-format`) prints actionable parse error and non-zero exit | `--help`, `--version`/`-V`, successful `--check-only`, valid `--log-level`/`--log-format`, and deterministic config+CLI precedence produce expected behavior and `0` semantics | N/A - represented via command failure text | N/A - represented via preflight/command failure text |
 | System tray icon | N/A - icon appears after app init | `enabled-syncing` while startup discovery/check is running | `enabled-error` for global failure or profile-level blocking issue | `enabled-ok` when monitoring is active and healthy; `disabled-paused` when paused; `enabled-warning` for non-blocking warning states | N/A - permission outcomes shown as command errors | N/A - offline represented as command failures |
 | Global control row | N/A - row always exists | `Synchronizing...` disabled row during transient startup/sync operations | `Show startup/sync error` action replacing toggle when global AWS operations fail, including unsupported AWS CLI version, unsupported/invalid global config guidance, config trust-policy violations, classifier-governance validation failures, and rollback artifact verification failures | `Disable auto-login` when monitoring enabled, `Enable auto-login` when monitoring disabled (including intentional safe-mode pause) | N/A - permission issues surfaced via error action | N/A - offline surfaced via error action |
 | Profile status row | N/A - row exists only for discovered SSO profile | `Profile: <name> - Syncing...` while check or login result is pending | `Profile: <name> - Error: <short reason>` and row is clickable; timeout uses explicit `Command timed out` reason | `Profile: <name> - OK, last refresh: <duration>` or `Profile: <name> - OK (paused)` | `Profile: <name> - Error: Access denied` with clickable details | `Profile: <name> - Warning: Connectivity issue` with clickable details; unknown-classifier failures do not imply auto-login |
@@ -150,6 +196,12 @@ Signal-triggered shutdown follows the same success semantics as Quit row and add
 
 ## Voice and tone
 Reference strings:
+- CLI parse error: `Invalid option value. Run --help to see valid usage.`
+- CLI log-level error: `Invalid log level. Use one of: error, warning, info, debug, trace.`
+- CLI log-format error: `Invalid log format. Use one of: text, json.`
+- CLI check-only success: `Startup preflight passed. Tray host and AWS prerequisites are available.`
+- CLI check-only failure: `Startup preflight failed. See structured event logs for tray host or AWS readiness details.`
+- Settings precedence note: `Effective logging settings: level=<...>, format=<...>, source=<config|cli|default>.`
 - Error: `Auto-login failed for profile "<name>". Click to view full diagnostics.`
 - Success: `Profile: <name> - OK, last refresh: <duration>`
 - Empty state: `No SSO profiles detected. Monitoring profile sources for changes.`
@@ -190,6 +242,9 @@ Guidelines:
 ## Platform / harness constraints
 - Target platform: Linux with Wayland support.
 - Runtime stack: Python + Qt6 (`PySide6`).
+- CLI parsing stack: `typer` with deterministic terminal help/error behavior.
+- Logging output modes: `text` (default, colorized on TTY) and `json` (structured events).
+- Runtime settings precedence: defaults -> config file -> environment -> CLI.
 - AWS CLI v2 is the supported CLI baseline for UX guarantees.
 - Tray availability depends on desktop environment support for system tray/status notifier.
 - No primary window; tray and modal dialogs only.

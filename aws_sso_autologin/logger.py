@@ -8,6 +8,9 @@ from typing import Optional, Set
 # Track all loggers created by get_logger
 _created_loggers: Set[logging.Logger] = set()
 
+TRACE_LEVEL_NUM = 5
+logging.addLevelName(TRACE_LEVEL_NUM, "TRACE")
+
 
 class StructuredFormatter(logging.Formatter):
     """JSON formatter for structured stdout logs."""
@@ -55,6 +58,68 @@ class StructuredFormatter(logging.Formatter):
         return json.dumps(payload, sort_keys=True)
 
 
+class TextFormatter(logging.Formatter):
+    """Human-readable formatter with optional ANSI colors."""
+
+    COLORS = {
+        "TRACE": "\033[37m",
+        "DEBUG": "\033[36m",
+        "INFO": "\033[32m",
+        "WARNING": "\033[33m",
+        "ERROR": "\033[31m",
+        "CRITICAL": "\033[35m",
+    }
+    RESET = "\033[0m"
+
+    def __init__(self, use_color: bool) -> None:
+        super().__init__()
+        self._use_color = use_color
+
+    def format(self, record: logging.LogRecord) -> str:
+        level = record.levelname
+        if self._use_color and level in self.COLORS:
+            level = f"{self.COLORS[level]}{level}{self.RESET}"
+        timestamp = self.formatTime(record, "%Y-%m-%d %H:%M:%S")
+        return f"{timestamp} {level} [{record.name}] {record.getMessage()}"
+
+
+def parse_log_level(level_name: str) -> int:
+    """Convert a log-level name to logging numeric level."""
+    level = level_name.strip().lower()
+    mapping = {
+        "trace": TRACE_LEVEL_NUM,
+        "debug": logging.DEBUG,
+        "info": logging.INFO,
+        "warning": logging.WARNING,
+        "error": logging.ERROR,
+    }
+    return mapping[level]
+
+
+def configure_logging(level_name: str = "info", log_format: str = "text") -> None:
+    """Configure root logger format and level."""
+    level = parse_log_level(level_name)
+    root = logging.getLogger()
+    root.setLevel(level)
+
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(level)
+
+    if log_format == "json":
+        handler.setFormatter(StructuredFormatter())
+    else:
+        use_color = bool(getattr(sys.stdout, "isatty", lambda: False)())
+        handler.setFormatter(TextFormatter(use_color=use_color))
+
+    root.handlers.clear()
+    root.addHandler(handler)
+
+    for logger in _created_loggers:
+        logger.setLevel(level)
+        logger.handlers.clear()
+        logger.propagate = True
+
+
 def get_logger(name: str, level: Optional[int] = None) -> logging.Logger:
     """Get a logger with standard configuration.
     
@@ -68,16 +133,22 @@ def get_logger(name: str, level: Optional[int] = None) -> logging.Logger:
     logger = logging.getLogger(name)
     
     if level is None:
-        level = logging.INFO
+        level = logging.getLogger().level or logging.INFO
     
     logger.setLevel(level)
     
+    logger.propagate = True
+
     # Only add handler if not already configured
     if not logger.handlers:
         handler = logging.StreamHandler(sys.stdout)
         handler.setLevel(level)
-        
-        formatter = StructuredFormatter()
+
+        root_handlers = logging.getLogger().handlers
+        if root_handlers and isinstance(root_handlers[0].formatter, StructuredFormatter):
+            formatter = StructuredFormatter()
+        else:
+            formatter = TextFormatter(use_color=False)
         handler.setFormatter(formatter)
         
         logger.addHandler(handler)

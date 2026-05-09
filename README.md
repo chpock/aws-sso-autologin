@@ -91,19 +91,42 @@ Once running, the application appears in your system tray:
   - Overflow bucket size is 20 profiles per submenu
 - **Quit**: Gracefully shutdown the application
 
-### Debug Mode
+### CLI Runtime Options
 
-Enable debug logging for troubleshooting:
+Show help and available options:
 
 ```bash
-AWS_SSO_AUTOLOGIN_DEBUG=1 aws-sso-autologin
+aws-sso-autologin --help
 ```
 
-Or set the environment variable:
+Show app version and exit:
+
 ```bash
-export AWS_SSO_AUTOLOGIN_DEBUG=1
-aws-sso-autologin
+aws-sso-autologin --version
+aws-sso-autologin -V
 ```
+
+Run startup preflight checks only (without starting the tray UI):
+
+```bash
+aws-sso-autologin --check-only
+```
+
+Set log verbosity:
+
+```bash
+aws-sso-autologin --log-level debug
+aws-sso-autologin --log-level trace
+```
+
+Set log output format:
+
+```bash
+aws-sso-autologin --log-format text
+aws-sso-autologin --log-format json
+```
+
+Text logging is colorized on TTY and plain on non-TTY.
 
 ### Safe Mode
 
@@ -185,6 +208,9 @@ Example configuration:
 ```yaml
 config_version: 1
 safe_mode: false
+logging:
+  level: info
+  format: text
 profiles:
   my-sso-profile:
     browser:
@@ -197,12 +223,16 @@ profiles:
 
 - `config_version`: Configuration schema version (current: 1)
 - `safe_mode`: Start with monitoring disabled (default: false)
+- `logging.level`: Log level (`error`, `warning`, `info`, `debug`, `trace`)
+- `logging.format`: Log format (`text`, `json`)
 - `profiles`: Per-profile browser overrides (optional)
 
 ### Environment Variables
 
-- `AWS_SSO_AUTOLOGIN_DEBUG`: Enable debug logging (set to `1`)
+- `AWS_SSO_AUTOLOGIN_LOG_LEVEL`: Log level override (`error|warning|info|debug|trace`)
+- `AWS_SSO_AUTOLOGIN_LOG_FORMAT`: Log format override (`text|json`)
 - `AWS_SSO_AUTOLOGIN_SAFE_MODE`: Start in safe mode with monitoring disabled (set to `1`)
+- `AWS_SSO_AUTOLOGIN_TRAY_LOSS_BEHAVIOR`: Tray host loss behavior (`pause|continue`)
 - `DESKTOP_SESSION` / `XDG_CURRENT_DESKTOP`: Used for tray host detection
 
 ## Troubleshooting
@@ -249,10 +279,10 @@ profiles:
 
 ### Debug Logging
 
-Enable debug mode to see detailed logs:
+Enable verbose logs to troubleshoot startup/session issues:
 
 ```bash
-AWS_SSO_AUTOLOGIN_DEBUG=1 aws-sso-autologin 2>&1 | tee autologin.log
+aws-sso-autologin --log-level debug 2>&1 | tee autologin.log
 ```
 
 ### Testing

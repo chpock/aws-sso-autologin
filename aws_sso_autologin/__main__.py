@@ -4,7 +4,10 @@ import os
 import signal
 import sys
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Any
+
+import typer
+from click.exceptions import ClickException
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
@@ -25,7 +28,8 @@ from aws_sso_autologin.models import (
     SessionInfo,
 )
 from aws_sso_autologin.aws import discover_profiles
-from aws_sso_autologin.logger import get_logger
+from aws_sso_autologin.logger import configure_logging, get_logger
+from aws_sso_autologin.settings import RuntimeSettingsResolver
 from aws_sso_autologin import __version__, VERSION_SOURCE
 
 logger = get_logger(__name__)
@@ -37,6 +41,70 @@ TRAY_HOST_REQUIRED_MESSAGE = (
 NO_PROFILES_SUMMARY = "No SSO profiles detected"
 MONITORING_START_FAILED_SUMMARY = "Monitoring startup failed"
 TRAY_HOST_LOST_SUMMARY = "Tray host heartbeat lost"
+
+VALID_LOG_LEVELS = ["error", "warning", "info", "debug", "trace"]
+VALID_LOG_FORMATS = ["text", "json"]
+
+
+def _build_cli_app(state: dict[str, Any]) -> typer.Typer:
+    app = typer.Typer(add_completion=False, help="AWS SSO tray autologin")
+
+    @app.callback(invoke_without_command=True)
+    def entry(
+        version: bool = typer.Option(
+            False,
+            "--version",
+            "-V",
+            is_eager=True,
+            help="Show app version and exit",
+        ),
+        log_level: str = typer.Option("", "--log-level", help="Log level"),
+        log_format: str = typer.Option("", "--log-format", help="Log format"),
+        safe_mode: bool = typer.Option(False, "--safe-mode", help="Start paused"),
+        tray_loss_behavior: str = typer.Option(
+            "", "--tray-loss-behavior", help="Tray-loss behavior"
+        ),
+        check_only: bool = typer.Option(False, "--check-only", help="Run preflight only"),
+        profiles: str = typer.Option("", "--profiles", help="Comma-separated profiles"),
+    ) -> None:
+        if log_level and log_level not in VALID_LOG_LEVELS:
+            raise typer.BadParameter(
+                "Invalid log level. Use one of: error, warning, info, debug, trace."
+            )
+        if log_format and log_format not in VALID_LOG_FORMATS:
+            raise typer.BadParameter("Invalid log format. Use one of: text, json.")
+        state.update(
+            {
+                "version": version,
+                "log_level": log_level or None,
+                "log_format": log_format or None,
+                "safe_mode": safe_mode,
+                "tray_loss_behavior": tray_loss_behavior or None,
+                "check_only": check_only,
+                "profiles": profiles or None,
+            }
+        )
+
+    return app
+
+
+def _run_preflight_check() -> int:
+    host_info = detect_tray_host()
+    if not check_tray_host_available():
+        logger.error(
+            "Preflight failed",
+            extra={
+                "event": "tray_host_preflight_failed",
+                "detected_host": host_info.name,
+                "host_type": host_info.host_type.value,
+            },
+        )
+        print(TRAY_HOST_REQUIRED_MESSAGE)
+        return 1
+
+    discover_profiles()
+    logger.info("Startup preflight passed", extra={"event": "preflight_passed"})
+    return 0
 
 
 class AutologinApp:
@@ -642,7 +710,39 @@ def main(args: Optional[List[str]] = None) -> int:
     Returns:
         Exit code
     """
-    app = AutologinApp(args)
+    raw_args = list(args) if args is not None else sys.argv[1:]
+    cli_state: dict[str, Any] = {}
+    cli_app = _build_cli_app(cli_state)
+
+    try:
+        cli_app(standalone_mode=False, args=raw_args)
+    except typer.Exit as exc:
+        return int(exc.exit_code)
+    except ClickException as exc:
+        print(f"Error: {exc.format_message()}", file=sys.stderr)
+        return 2
+    except Exception as exc:
+        if isinstance(exc, SystemExit):
+            return int(exc.code)
+        raise
+
+    resolver = RuntimeSettingsResolver()
+    settings = resolver.resolve(cli=cli_state)
+    configure_logging(level_name=settings.log_level, log_format=settings.log_format)
+
+    if cli_state.get("version"):
+        print(__version__)
+        return 0
+
+    if settings.tray_loss_behavior:
+        os.environ["AWS_SSO_AUTOLOGIN_TRAY_LOSS_BEHAVIOR"] = settings.tray_loss_behavior
+    if settings.safe_mode:
+        os.environ["AWS_SSO_AUTOLOGIN_SAFE_MODE"] = "1"
+
+    if cli_state.get("check_only"):
+        return _run_preflight_check()
+
+    app = AutologinApp(["aws-sso-autologin", *raw_args])
 
     logger.info(
         "Application startup",
