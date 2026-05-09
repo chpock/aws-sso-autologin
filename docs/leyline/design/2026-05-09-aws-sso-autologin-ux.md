@@ -13,6 +13,7 @@ UX spec approved - round 6 - 2026-05-09
 UX spec approved - round 7 - 2026-05-09
 UX spec approved - round 8 - 2026-05-09
 UX spec approved - round 9 - 2026-05-09
+UX spec approved - round 10 - 2026-05-09
 Design-interrogation pass complete - round 1 - 2026-05-09
 
 ## Design-interrogation notes
@@ -104,9 +105,10 @@ Failure path: if performance target is missed at high cardinality, this is treat
 
 ### Flow 7 - Termination signal handling (`Ctrl+C` / `SIGTERM`)
 1. App is running in a console session and receives `SIGINT` (`Ctrl+C`) or `SIGTERM`.
-2. Runtime logs explicit structured event `system_signal_received` including signal name and planned action `graceful_shutdown`.
-3. App executes the same graceful shutdown sequence as tray `Quit`.
-4. Runtime logs each shutdown action stage and requests Qt event-loop exit.
+2. Runtime keeps a lightweight signal-pump heartbeat active during Qt loop so a single `Ctrl+C` is handled promptly in normal conditions.
+3. Runtime logs explicit structured event `system_signal_received` including signal name and planned action `graceful_shutdown`.
+4. App executes the same graceful shutdown sequence as tray `Quit`.
+5. Runtime logs each shutdown action stage and requests Qt event-loop exit.
 
 Failure path: if another termination signal is received while graceful shutdown is in progress, runtime logs structured event `system_signal_force_exit` and exits immediately with code `130`.
 

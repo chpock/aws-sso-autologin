@@ -379,6 +379,30 @@ def test_run_fails_when_monitoring_does_not_start():
     assert result == 1
 
 
+def test_run_starts_signal_pump_timer_for_sigint_responsiveness():
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    app = AutologinApp([])
+    mock_qapp = Mock()
+    mock_qapp.exec.return_value = 0
+    mock_timer = Mock()
+
+    with patch.object(app, "_initialize_qt", return_value=True):
+        with patch.object(app, "_detect_tray_host", return_value=True):
+            with patch.object(app, "_create_tray", return_value=True):
+                with patch.object(app, "_create_operators", return_value=True):
+                    with patch.object(app, "_create_tray_host_monitor", return_value=True):
+                        with patch.object(app, "_wire_signals"):
+                            with patch.object(app, "_load_profiles", return_value=True):
+                                with patch.object(app, "_start_monitoring", return_value=True):
+                                    with patch("aws_sso_autologin.__main__.QTimer", return_value=mock_timer):
+                                        app._app = mock_qapp
+                                        app._tray = Mock()
+                                        app.run()
+
+    mock_timer.start.assert_called_once()
+
+
 def test_tray_host_loss_pauses_monitoring_by_default():
     from aws_sso_autologin.__main__ import AutologinApp, TRAY_HOST_LOST_SUMMARY
 

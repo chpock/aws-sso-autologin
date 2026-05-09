@@ -66,6 +66,7 @@ class AutologinApp:
         self._profiles: List[ProfileConfig] = []
         self._tray_host: Optional[TrayHost] = None
         self._tray_host_timer: Optional[QTimer] = None
+        self._signal_pump_timer: Optional[QTimer] = None
         self._tray_host_loss_announced = False
         self._global_error_source: Optional[str] = None
         self._awaiting_initial_status = False
@@ -439,6 +440,16 @@ class AutologinApp:
                 logger.error(f"Failed to start health monitoring: {e}")
                 return False
         return False
+
+    def _start_signal_pump_timer(self) -> None:
+        if self._app is None or self._signal_pump_timer is not None:
+            return
+
+        timer = QTimer()
+        timer.setInterval(200)
+        timer.timeout.connect(lambda: None)
+        timer.start()
+        self._signal_pump_timer = timer
     
     def run(self) -> int:
         """Run the application.
@@ -489,6 +500,8 @@ class AutologinApp:
             )
             logger.error("Health monitoring failed to start; exiting")
             return 1
+
+        self._start_signal_pump_timer()
 
         if self._tray_host_timer is not None:
             self._tray_host_timer.start()
@@ -596,6 +609,13 @@ class AutologinApp:
                 extra={"event": "shutdown_action", "action": "stop_tray_host_timer"},
             )
             self._tray_host_timer.stop()
+
+        if self._signal_pump_timer is not None:
+            logger.info(
+                "Stopping signal pump timer",
+                extra={"event": "shutdown_action", "action": "stop_signal_pump_timer"},
+            )
+            self._signal_pump_timer.stop()
 
         if self._tray:
             logger.info(
