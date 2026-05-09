@@ -539,3 +539,102 @@ AssertionError: expected distinct icon states, got enabled=0, paused=0
 icon_state_rendering_contract: pass
 9 passed, 13 deselected in 0.18s
 ```
+
+### Failing-test output - task 1
+
+```
+Exception: project-setup task - no failing test (per plan exception).
+```
+
+### Post-implementation verification output - task 1
+
+```
+Import OK
+```
+
+### Failing-test output - task 2
+
+```
+ModuleNotFoundError: No module named 'aws_sso_autologin.constants'
+ModuleNotFoundError: No module named 'aws_sso_autologin.errors'
+4 failed in 0.02s
+```
+
+### Post-implementation verification output - task 2
+
+```
+9 passed in 0.01s
+```
+
+### Failing-test output - task 3
+
+```
+ModuleNotFoundError: No module named 'aws_sso_autologin.logger'
+1 error during collection
+```
+
+### Post-implementation verification output - task 3
+
+```
+4 passed in 0.01s
+```
+
+### Failing-test output - task 4
+
+```
+ModuleNotFoundError: No module named 'aws_sso_autologin.tray'
+```
+
+### Post-implementation verification output - task 4
+
+```
+8 passed in 0.16s
+```
+
+### Failing-test output - task 6
+
+```
+ModuleNotFoundError: No module named 'aws_sso_autologin.classifier'
+```
+
+### Post-implementation verification output - task 6
+
+```
+1 passed in 0.01s
+```
+
+### Failing-test output - task 7
+
+```
+ModuleNotFoundError: No module named 'aws_sso_autologin.operator'
+```
+
+### Post-implementation verification output - task 7
+
+```
+30 passed in 0.03s
+```
+
+### Failing-test output - task 8
+
+```
+ModuleNotFoundError: No module named 'aws_sso_autologin.service'
+```
+
+### Post-implementation verification output - task 8
+
+```
+16 passed in 0.03s
+```
+
+### Failing-test output - task 11
+
+```
+Exception: doc-only task - no failing test (per plan exception).
+```
+
+### Post-implementation verification output - task 11
+
+```
+README created and validated against plan sections.
+```
