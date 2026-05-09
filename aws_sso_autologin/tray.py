@@ -255,7 +255,9 @@ class ErrorDetailsDialog(QDialog):
         """Format sections into a single text block for display and copying."""
         lines = []
         for section in self.section_order:
-            value = sections.get(section, "")
+            if section not in sections:
+                continue
+            value = sections[section]
             lines.append(f"{section}: {value}")
         return "\n\n".join(lines)
 
@@ -270,7 +272,7 @@ class ErrorDetailsDialog(QDialog):
         details: str,
         parent: Optional[QWidget] = None,
     ) -> "ErrorDetailsDialog":
-        sections = {
+        raw_sections = {
             "Summary": summary,
             "Incident evidence": "Incident evidence unavailable: retention window exceeded.",
             "Command": "",
@@ -289,16 +291,53 @@ class ErrorDetailsDialog(QDialog):
             "timestamp": "Timestamp",
             "summary": "Summary",
         }
+        command_executed: Optional[bool] = None
 
         for line in details.splitlines():
             if ":" not in line:
                 continue
             key, value = line.split(":", 1)
             normalized = key.strip().lower()
+            if normalized == "command executed":
+                bool_value = value.strip().lower()
+                if bool_value in {"true", "yes", "1"}:
+                    command_executed = True
+                elif bool_value in {"false", "no", "0"}:
+                    command_executed = False
+                continue
             section = mapping.get(normalized)
             if section is None:
                 continue
-            sections[section] = value.strip()
+            raw_sections[section] = value.strip()
+
+        sections = {"Summary": raw_sections["Summary"]}
+
+        if raw_sections["Incident evidence"]:
+            sections["Incident evidence"] = raw_sections["Incident evidence"]
+
+        if command_executed is True:
+            sections["Command"] = raw_sections["Command"] or "unknown"
+            sections["Exit code"] = raw_sections["Exit code"] or "unknown"
+
+            stderr = raw_sections["stderr"]
+            stdout = raw_sections["stdout"]
+            if stderr and stdout:
+                sections["stderr"] = stderr
+                sections["stdout"] = stdout
+            elif stderr:
+                sections["stderr"] = stderr
+            elif stdout:
+                sections["stdout"] = stdout
+            else:
+                sections["stdout"] = ""
+        elif command_executed is None:
+            sections["Command"] = raw_sections["Command"]
+            sections["Exit code"] = raw_sections["Exit code"]
+            sections["stderr"] = raw_sections["stderr"]
+            sections["stdout"] = raw_sections["stdout"]
+
+        if raw_sections["Timestamp"]:
+            sections["Timestamp"] = raw_sections["Timestamp"]
 
         return cls(sections=sections, parent=parent)
 
