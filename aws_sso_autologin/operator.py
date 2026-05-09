@@ -117,11 +117,17 @@ class LoginOperator:
         """
         with self._lock:
             if self._is_profile_locked(profile_name):
-                logger.warning(f"Profile {profile_name} is locked, skipping login")
+                logger.warning(
+                    "login enqueue skipped for locked profile",
+                    extra={"event": "login_enqueue_skipped", "profile": profile_name, "reason": "profile_locked"},
+                )
                 return LoginStatus.LOCKED
             if profile_name not in self._queue:
                 self._queue.append(profile_name)
-                logger.info(f"Enqueued profile {profile_name} for login")
+                logger.info(
+                    "login enqueue accepted",
+                    extra={"event": "login_enqueued", "profile": profile_name, "queue_length": len(self._queue)},
+                )
             if not self._processing:
                 self._start_worker()
             return LoginStatus.PENDING
@@ -162,8 +168,22 @@ class LoginOperator:
             )
 
         try:
-            logger.info(f"Starting login for profile {profile_name}")
+            logger.info(
+                "login processing started",
+                extra={"event": "login_processing_started", "profile": profile_name},
+            )
             stdout, stderr, returncode = self._cli_executor.execute_login(profile_name)
+            logger.log(
+                5,
+                "login execution trace",
+                extra={
+                    "event": "login_processing_trace",
+                    "profile": profile_name,
+                    "exit_code": returncode,
+                    "stdout": (stdout or "")[:2000],
+                    "stderr": (stderr or "")[:2000],
+                },
+            )
 
             status = self._classify_output(stdout, stderr, returncode)
 
@@ -282,7 +302,10 @@ class SessionOperator:
             return RenewalStatus.UNKNOWN
 
         if info.seconds_remaining is None:
-            logger.warning(f"Cannot determine remaining time for {profile.name}")
+            logger.warning(
+                "session remaining time unavailable",
+                extra={"event": "session_remaining_unavailable", "profile": profile.name},
+            )
             return RenewalStatus.UNKNOWN
 
         if info.seconds_remaining <= RENEWAL_THRESHOLD_SECONDS:
@@ -401,7 +424,10 @@ class HealthOperator:
                 self._emit_status(profile.name, status, info)
 
             except Exception as e:
-                logger.error(f"Error checking profile {profile.name}: {e}")
+                logger.error(
+                    "profile health check failed",
+                    extra={"event": "profile_health_check_failed", "profile": profile.name, "error": str(e)},
+                )
                 fallback_info = SessionInfo(
                     profile_name=profile.name,
                     is_active=False,
@@ -463,7 +489,10 @@ class HealthOperator:
                 status = self._session_operator.check_and_renew(profile)
                 results[profile.name] = status
             except Exception as e:
-                logger.error(f"Error in forced check for {profile.name}: {e}")
+                logger.error(
+                    "forced profile check failed",
+                    extra={"event": "profile_force_check_failed", "profile": profile.name, "error": str(e)},
+                )
                 results[profile.name] = RenewalStatus.UNKNOWN
         self._update_heartbeat()
         return results

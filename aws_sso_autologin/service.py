@@ -155,7 +155,7 @@ def detect_tray_host() -> TrayHostInfo:
     desktop_session = os.environ.get("DESKTOP_SESSION", "")
     xdg_current_desktop = os.environ.get("XDG_CURRENT_DESKTOP", "")
     logger.debug(
-        "Tray host env probe",
+        "tray host env probe",
         extra={
             "event": "tray_host_env_probe",
             "desktop_session": desktop_session,
@@ -175,7 +175,10 @@ def detect_tray_host() -> TrayHostInfo:
     # Check for StatusNotifier support (modern Linux desktops)
     if host_type is None:
         # No recognized desktop environment
-        logger.debug("No recognized desktop environment detected")
+        logger.debug(
+            "tray host detection returned unknown",
+            extra={"event": "tray_host_detected", "host_type": TrayHostType.UNKNOWN.value},
+        )
         return TrayHostInfo(
             host_type=TrayHostType.UNKNOWN,
             name="Unknown Desktop Environment",
@@ -218,7 +221,16 @@ def detect_tray_host() -> TrayHostInfo:
         supports_xembed=supports_xembed,
     )
     
-    logger.debug(f"Detected tray host: {info.name} (StatusNotifier: {supports_status_notifier})")
+    logger.debug(
+        "tray host detected",
+        extra={
+            "event": "tray_host_detected",
+            "host_name": info.name,
+            "host_type": info.host_type.value,
+            "supports_status_notifier": supports_status_notifier,
+            "supports_xembed": supports_xembed,
+        },
+    )
     return info
 
 
@@ -265,7 +277,15 @@ def check_tray_host_available() -> bool:
         )
         return False
     
-    logger.debug(f"Compatible tray host available: {info.name}")
+    logger.debug(
+        "tray host preflight compatible",
+        extra={
+            "event": "tray_host_preflight_completed",
+            "status": "passed",
+            "host_name": info.name,
+            "host_type": info.host_type.value,
+        },
+    )
     return True
 
 
@@ -317,6 +337,20 @@ class ConcreteTrayHost(TrayHost):
             "/org/freedesktop/DBus",
             "org.freedesktop.DBus.ListNames",
         ]
+        started_at = time.time()
+        logger.debug(
+            "tray host ping started",
+            extra={"event": "tray_host_ping_started", "host": self._info.name},
+        )
+        logger.log(
+            5,
+            "tray host ping command",
+            extra={
+                "event": "tray_host_ping_trace",
+                "host": self._info.name,
+                "command": command,
+            },
+        )
 
         try:
             result = self._ping_runner(
@@ -337,8 +371,29 @@ class ConcreteTrayHost(TrayHost):
                     )
                 self._consecutive_failures = 0
                 self._is_lost = False
+                logger.debug(
+                    "tray host ping completed",
+                    extra={
+                        "event": "tray_host_ping_completed",
+                        "host": self._info.name,
+                        "status": "passed",
+                        "duration_ms": int((time.time() - started_at) * 1000),
+                        "exit_code": result.returncode,
+                    },
+                )
                 return True
 
+            logger.log(
+                5,
+                "tray host ping failure detail",
+                extra={
+                    "event": "tray_host_ping_trace",
+                    "host": self._info.name,
+                    "stdout": (result.stdout or "")[:2000],
+                    "stderr": (result.stderr or "")[:2000],
+                    "exit_code": result.returncode,
+                },
+            )
             self._record_failure(result.stderr or "dbus probe failed")
             return False
         except Exception as exc:  # pragma: no cover - defensive

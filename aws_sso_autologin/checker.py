@@ -29,6 +29,10 @@ class SessionChecker:
         Returns:
             SessionInfo with current session status.
         """
+        logger.debug(
+            "session check started",
+            extra={"event": "session_check_started", "profile": profile.name},
+        )
         try:
             # Try to get caller identity to check if session is active
             returncode, stdout, stderr = _run_subprocess_with_escalation(
@@ -37,6 +41,17 @@ class SessionChecker:
             )
 
             is_active = returncode == 0
+            logger.log(
+                5,
+                "session check command result",
+                extra={
+                    "event": "session_check_trace",
+                    "profile": profile.name,
+                    "exit_code": returncode,
+                    "stdout": (stdout or "")[:2000],
+                    "stderr": (stderr or "")[:2000],
+                },
+            )
 
             if is_active:
                 # Try to get session expiration
@@ -67,7 +82,10 @@ class SessionChecker:
         except Exception as exc:
             message = str(exc)
             if "timed out" in message.lower():
-                logger.warning(f"Timeout checking session for {profile.name}")
+                logger.warning(
+                    "session check timeout",
+                    extra={"event": "session_check_completed", "profile": profile.name, "status": "failed", "reason": "timeout"},
+                )
                 return SessionInfo(
                     profile_name=profile.name,
                     is_active=False,
@@ -76,7 +94,10 @@ class SessionChecker:
                     error_message="Command timed out",
                 )
 
-            logger.error(f"Error checking session for {profile.name}: {exc}")
+            logger.error(
+                "session check error",
+                extra={"event": "session_check_completed", "profile": profile.name, "status": "failed", "error": str(exc)},
+            )
             return SessionInfo(
                 profile_name=profile.name,
                 is_active=False,
@@ -97,6 +118,10 @@ class SessionChecker:
         # This is a simplified implementation
         # In reality, we'd parse the SSO token expiration
         try:
+            logger.debug(
+                "session remaining time probe started",
+                extra={"event": "session_remaining_probe_started", "profile": profile.name},
+            )
             # Try to get credentials expiration
             _run_subprocess_with_escalation(
                 [
@@ -112,7 +137,11 @@ class SessionChecker:
             # For now, return a default value
             # In production, we'd parse the actual expiration
             return 3600  # Default 1 hour
-        except Exception:
+        except Exception as exc:
+            logger.debug(
+                "session remaining time probe failed",
+                extra={"event": "session_remaining_probe_completed", "profile": profile.name, "status": "failed", "error": str(exc)},
+            )
             return None
 
     def is_session_valid(self, profile: ProfileConfig) -> bool:

@@ -74,11 +74,21 @@ def get_watchdog_config() -> WatchdogConfig:
     # Enforce minimum timeout of 5 seconds to prevent accidental immediate kills
     timeout = max(timeout, 5)
     
-    return WatchdogConfig(
+    config = WatchdogConfig(
         timeout_seconds=timeout,
         enabled=enabled,
         automation_detected=automation_detected,
     )
+    logger.debug(
+        "watchdog config resolved",
+        extra={
+            "event": "watchdog_config_resolved",
+            "enabled": config.enabled,
+            "timeout_s": config.timeout_seconds,
+            "automation_detected": config.automation_detected,
+        },
+    )
+    return config
 
 
 class AutomationWatchdog:
@@ -121,11 +131,17 @@ class AutomationWatchdog:
     def arm(self) -> None:
         """Arm the watchdog if enabled in current context."""
         if not self._enabled:
-            logger.debug("Watchdog not armed: disabled by configuration")
+            logger.debug(
+                "watchdog arm skipped",
+                extra={"event": "watchdog_arm_skipped", "reason": "disabled"},
+            )
             return
         
         if self._armed:
-            logger.warning("Watchdog already armed, ignoring re-arm request")
+            logger.warning(
+                "watchdog arm skipped",
+                extra={"event": "watchdog_arm_skipped", "reason": "already_armed"},
+            )
             return
         
         self._armed = True
@@ -133,8 +149,12 @@ class AutomationWatchdog:
         self._timeout_triggered = False
         
         logger.info(
-            f"event=watchdog_armed timeout={self._timeout_seconds}s "
-            f"automation_detected={self._automation_detected}"
+            "watchdog armed",
+            extra={
+                "event": "watchdog_started",
+                "timeout_s": self._timeout_seconds,
+                "automation_detected": self._automation_detected,
+            },
         )
     
     def disarm(self) -> None:
@@ -146,8 +166,12 @@ class AutomationWatchdog:
         self._armed = False
         
         logger.info(
-            f"event=watchdog_disarmed elapsed={elapsed:.1f}s "
-            f"timeout_triggered={self._timeout_triggered}"
+            "watchdog disarmed",
+            extra={
+                "event": "watchdog_disarmed",
+                "elapsed_s": round(elapsed, 1),
+                "timeout_triggered": self._timeout_triggered,
+            },
         )
     
     def check(self) -> None:
@@ -176,11 +200,15 @@ class AutomationWatchdog:
     def _emit_timeout_event(self, elapsed: float) -> None:
         """Emit structured timeout event for observability."""
         logger.error(
-            f"event=agent_watchdog_timeout "
-            f"timeout={self._timeout_seconds}s "
-            f"elapsed={elapsed:.1f}s "
-            f"exit_code=124 "
-            f"reason=automation_timeout"
+            "event=agent_watchdog_timeout exit_code=124 watchdog timeout",
+            extra={
+                "event": "watchdog_timeout",
+                "timeout_s": self._timeout_seconds,
+                "elapsed_s": round(elapsed, 1),
+                "exit_code": 124,
+                "reason": "automation_timeout",
+                "status": "failed",
+            },
         )
     
     def __enter__(self) -> "AutomationWatchdog":

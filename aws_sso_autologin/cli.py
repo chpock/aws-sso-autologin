@@ -37,7 +37,10 @@ class CLIExecutor:
         Returns:
             Tuple of (stdout, stderr, returncode).
         """
-        logger.info(f"Executing login for profile {profile_name}")
+        logger.info(
+            "execute login requested",
+            extra={"event": "login_execute_requested", "profile": profile_name, "timeout_s": timeout},
+        )
 
         try:
             success, error = run_sso_login(
@@ -49,7 +52,10 @@ class CLIExecutor:
                 return ("", "", 0)
             return ("", error or "Login failed", 1)
         except Exception as e:
-            logger.error(f"Error executing login for {profile_name}: {e}")
+            logger.error(
+                "execute login failed",
+                extra={"event": "login_execute_failed", "profile": profile_name, "error": str(e)},
+            )
             return ("", str(e), -1)
 
     def execute_command(
@@ -64,15 +70,43 @@ class CLIExecutor:
         Returns:
             Tuple of (stdout, stderr, returncode).
         """
+        command = [self._cli_path] + args
+        logger.debug(
+            "cli command started",
+            extra={"event": "cli_command_started", "command": command, "timeout_s": timeout or 30},
+        )
         try:
             result = subprocess.run(
-                [self._cli_path] + args,
+                command,
                 capture_output=True,
                 text=True,
                 timeout=timeout or 30,
             )
+            logger.log(
+                5,
+                "cli command trace",
+                extra={
+                    "event": "cli_command_trace",
+                    "command": command,
+                    "stdout": (result.stdout or "")[:2000],
+                    "stderr": (result.stderr or "")[:2000],
+                    "exit_code": result.returncode,
+                },
+            )
+            logger.debug(
+                "cli command completed",
+                extra={"event": "cli_command_completed", "status": "completed", "exit_code": result.returncode},
+            )
             return (result.stdout, result.stderr, result.returncode)
         except subprocess.TimeoutExpired:
+            logger.error(
+                "cli command timeout",
+                extra={"event": "cli_command_failed", "status": "failed", "reason": "timeout"},
+            )
             return ("", "Command timed out", -1)
         except Exception as e:
+            logger.error(
+                "cli command failed",
+                extra={"event": "cli_command_failed", "status": "failed", "error": str(e)},
+            )
             return ("", str(e), -1)
