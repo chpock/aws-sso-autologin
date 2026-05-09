@@ -44,11 +44,24 @@ def test_autologin_app_detect_tray_host_success():
 def test_autologin_app_detect_tray_host_failure():
     from aws_sso_autologin.__main__ import AutologinApp
     app = AutologinApp()
-    
+
     with patch("aws_sso_autologin.__main__.check_tray_host_available", return_value=False):
         result = app._detect_tray_host()
-    
+
     assert result is False
+
+
+def test_autologin_app_detect_tray_host_failure_emits_stdout_guidance():
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    app = AutologinApp()
+    with patch("aws_sso_autologin.__main__.check_tray_host_available", return_value=False):
+        with patch("builtins.print") as mock_print:
+            result = app._detect_tray_host()
+
+    assert result is False
+    mock_print.assert_called_once()
+    assert "tray host support is required" in mock_print.call_args[0][0].lower()
 
 
 def test_autologin_app_create_operators():
@@ -113,3 +126,43 @@ def test_main_function():
         
         assert result == 0
         mock_app.run.assert_called_once()
+
+
+def test_run_fails_when_profiles_do_not_load():
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    app = AutologinApp([])
+    mock_qapp = Mock()
+    mock_qapp.exec.return_value = 0
+
+    with patch.object(app, "_initialize_qt", return_value=True):
+        with patch.object(app, "_detect_tray_host", return_value=True):
+            with patch.object(app, "_create_tray", return_value=True):
+                with patch.object(app, "_create_operators", return_value=True):
+                    with patch.object(app, "_wire_signals"):
+                        with patch.object(app, "_load_profiles", return_value=False):
+                            with patch.object(app, "_start_monitoring", return_value=True):
+                                app._app = mock_qapp
+                                result = app.run()
+
+    assert result == 1
+
+
+def test_run_fails_when_monitoring_does_not_start():
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    app = AutologinApp([])
+    mock_qapp = Mock()
+    mock_qapp.exec.return_value = 0
+
+    with patch.object(app, "_initialize_qt", return_value=True):
+        with patch.object(app, "_detect_tray_host", return_value=True):
+            with patch.object(app, "_create_tray", return_value=True):
+                with patch.object(app, "_create_operators", return_value=True):
+                    with patch.object(app, "_wire_signals"):
+                        with patch.object(app, "_load_profiles", return_value=True):
+                            with patch.object(app, "_start_monitoring", return_value=False):
+                                app._app = mock_qapp
+                                result = app.run()
+
+    assert result == 1

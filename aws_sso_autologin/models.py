@@ -13,6 +13,16 @@ class RenewalStatus(Enum):
     UNKNOWN = "unknown"
 
 
+class SessionFailureType(Enum):
+    """Classifier outcome for failed session checks."""
+
+    NONE = "none"
+    EXPIRED_OR_INVALID = "expired_or_invalid"
+    OTHER = "other"
+    TIMEOUT = "timeout"
+    CHECK_ERROR = "check_error"
+
+
 @dataclass
 class ProfileConfig:
     """Configuration for an AWS SSO profile."""
@@ -33,6 +43,8 @@ class SessionInfo:
     is_active: bool
     seconds_remaining: Optional[int] = None
     expiration_time: Optional[str] = None
+    failure_type: SessionFailureType = SessionFailureType.NONE
+    error_message: Optional[str] = None
 
 
 @dataclass

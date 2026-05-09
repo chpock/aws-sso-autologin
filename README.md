@@ -8,16 +8,16 @@ A Linux system tray application that monitors AWS SSO sessions and automatically
 
 ## Features
 
-- **Automatic Session Refresh**: Monitors AWS SSO sessions every 30 seconds and triggers automatic renewal when sessions reach 50% of their lifetime (30 minutes before expiration)
-- **System Tray Integration**: Native Linux system tray icon with real-time status updates, tooltips, and context menu
+- **Automatic Session Refresh**: Monitors AWS SSO sessions every 30 seconds and queues login only on explicit expired/invalid session detection
+- **System Tray Integration**: Native Linux system tray icon with real-time status updates, tooltips, and a deterministic context menu contract
 - **Serial Login Queue**: Ensures login attempts run strictly one at a time to prevent AWS rate limiting and browser conflicts
-- **Per-Profile Login Lock**: 8-minute cooldown between login attempts per profile to prevent thrashing
+- **Per-Profile Login Lock**: 5-minute cooldown between login attempts per profile to prevent thrashing
 - **Profile Discovery**: Automatically discovers and monitors all SSO-enabled AWS profiles from your AWS config
-- **High Cardinality Support**: Supports up to 100 profiles with automatic overflow submenus for easy navigation
-- **Memory-Bounded Log Classification**: ROT13-obfuscated pattern corpus for secure log analysis with ~12 MiB total memory budget
+- **High Cardinality Support**: Supports up to 100 profiles with deterministic overflow submenus when tracked profiles exceed 40 (chunks of 20)
+- **Memory-Bounded Log Classification**: ROT13-obfuscated pattern corpus for secure log analysis with 48 KiB per stream budget
 - **Tray Host Detection**: Automatically detects and adapts to GNOME, KDE, XFCE, MATE, Cinnamon, and other Linux desktop environments
 - **Health Monitoring**: 5-minute heartbeat timeout with automatic session validation
-- **Status Window**: Detailed session status window showing all profiles, login times, and queue positions
+- **Diagnostics Dialog**: Warning/error rows open structured diagnostics with summary, command context, streams, and timestamp
 
 ## Requirements
 
@@ -77,18 +77,18 @@ python -m aws_sso_autologin
 
 ### System Tray Interface
 
-Once running, the application will appear in your system tray:
+Once running, the application appears in your system tray:
 
-- **Left-click**: Show status window with detailed session information
-- **Right-click**: Open context menu with profile list and controls
-- **Tooltip**: Shows current logged-in profile count (updates every 5 seconds)
+- **Right-click**: Open context menu with global control row, profile rows, and quit action
+- **First row**: `Disable auto-login` / `Enable auto-login`, or `Show startup/sync error` for blocking global failures
+- **Tooltip**: Shows `Profiles OK: <count>/<total>` and current icon semantic state
 
 ### Menu Options
 
-- **Status Window**: Opens the detailed status window showing all profiles
-- **Profile List**: Shows all monitored SSO profiles with their current status
-  - Profiles with overflow (>25) are grouped into submenus
-  - Each profile shows: `Profile: <name> - OK` or `Profile: <name> - Error`
+- **Global control row**: Toggle monitoring or open blocking startup/sync diagnostics
+- **Profile list**: Shows all monitored SSO profiles with state-matrix copy (`Syncing`, `Warning`, `Error`, `OK`, `OK (paused)`)
+  - Profiles overflow into deterministic submenus when count exceeds 40
+  - Overflow bucket size is 20 profiles per submenu
 - **Quit**: Gracefully shutdown the application
 
 ### Debug Mode
@@ -121,9 +121,9 @@ The application follows a modular architecture with four main components:
 
 Manages the system tray UI and user interaction:
 - `StatusTray`: Main tray icon with menu, tooltip management, and icon state
-- `StatusWindowProxy`: Lazy-initialized detailed status window with profile table
+- `ErrorDetailsDialog`: Structured diagnostics surface for warning/error states
 - `ProfileStatus`: Dataclass for per-profile status information
-- Features: 25-item menu limit with overflow submenus, 5-second tooltip throttle
+- Features: first-row global control semantics, profile interaction routing, deterministic overflow submenus, 5-second tooltip throttle
 
 ### 2. Classifier Module (`classifier.py`)
 
@@ -131,14 +131,14 @@ Memory-bounded log analysis for AWS CLI output:
 - `LogClassifier`: Tokenizes and classifies log lines with FIFO eviction
 - `LogCategory`: SUCCESS, ERROR_AUTH, ERROR_NETWORK, ERROR_CONFIG, WARNING, INFO, UNKNOWN
 - ROT13-obfuscated corpus for privacy protection
-- Memory budget: 64 tokens max per sample, 768 samples max (~48 KiB per stream, ~12 MiB total)
+- Memory budget: 64 tokens max per sample, 768 samples max (48 KiB per stream, 0.140625 MiB total across three streams)
 
 ### 3. Operator Module (`operator.py`)
 
 Manages session lifecycle and monitoring:
 - `HealthOperator`: 30-second monitoring loop, 5-minute heartbeat timeout
-- `SessionOperator`: Tracks sessions and triggers renewal at 50% threshold
-- `LoginOperator`: Serial login queue with 8-minute per-profile lock
+- `SessionOperator`: Queues login only when checker classifies explicit expired/invalid SSO session failures
+- `LoginOperator`: Serial login queue with 5-minute per-profile lock
 - Thread-safe queue processing with proper locking
 
 ### 4. Service Module (`service.py`)
@@ -152,6 +152,7 @@ Tray host abstraction and environment detection:
 ### Supporting Modules
 
 - **`aws.py`**: AWS CLI integration for session checking (`sts get-caller-identity`), SSO login, and profile discovery
+- **`aws.py`**: Includes secure temporary browser-wrapper lifecycle for per-profile `aws sso login` overrides
 - **`models.py`**: Domain models including `ProfileConfig` and `SessionInfo`
 - **`checker.py`**: Session checking logic
 - **`cli.py`**: CLI command execution wrapper
@@ -243,8 +244,8 @@ profiles:
 1. Check AWS CLI credentials: `aws sts get-caller-identity --profile <profile-name>`
 2. Verify SSO start URL is accessible in your browser
 3. Check for network connectivity issues
-4. Review error details in the status window
-5. Ensure 8-minute login lock has expired between attempts
+4. Review error details from the diagnostics dialog opened by warning/error profile rows
+5. Ensure 5-minute login lock has expired between attempts
 
 ### Debug Logging
 

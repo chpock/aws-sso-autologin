@@ -4,7 +4,7 @@ import logging
 import subprocess
 from typing import Optional
 
-from aws_sso_autologin.models import ProfileConfig, SessionInfo
+from aws_sso_autologin.models import ProfileConfig, SessionFailureType, SessionInfo
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class SessionChecker:
                 [self._cli_path, "sts", "get-caller-identity", "--profile", profile.name],
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=10,
             )
 
             is_active = result.returncode == 0
@@ -48,12 +48,19 @@ class SessionChecker:
                     is_active=True,
                     seconds_remaining=remaining,
                 )
-            else:
-                return SessionInfo(
-                    profile_name=profile.name,
-                    is_active=False,
-                    seconds_remaining=0,
-                )
+
+            error_text = (result.stderr or result.stdout or "").strip()
+            failure_type = SessionFailureType.OTHER
+            if self._is_expired_or_invalid_error(error_text):
+                failure_type = SessionFailureType.EXPIRED_OR_INVALID
+
+            return SessionInfo(
+                profile_name=profile.name,
+                is_active=False,
+                seconds_remaining=0,
+                failure_type=failure_type,
+                error_message=error_text or "Session check failed",
+            )
 
         except subprocess.TimeoutExpired:
             logger.warning(f"Timeout checking session for {profile.name}")
@@ -61,6 +68,8 @@ class SessionChecker:
                 profile_name=profile.name,
                 is_active=False,
                 seconds_remaining=0,
+                failure_type=SessionFailureType.TIMEOUT,
+                error_message="Command timed out",
             )
         except Exception as e:
             logger.error(f"Error checking session for {profile.name}: {e}")
@@ -68,7 +77,28 @@ class SessionChecker:
                 profile_name=profile.name,
                 is_active=False,
                 seconds_remaining=None,
+                failure_type=SessionFailureType.CHECK_ERROR,
+                error_message=str(e),
             )
+
+    def _is_expired_or_invalid_error(self, error_message: str) -> bool:
+        """Return True when CLI output explicitly indicates expired/invalid SSO."""
+        if not error_message:
+            return False
+
+        lowered = error_message.lower()
+        explicit_patterns = (
+            "token has expired",
+            "sso token has expired",
+            "the sso session associated with this profile has expired",
+            "session has expired",
+            "expired token",
+            "invalid_grant",
+            "invalid grant",
+            "invalid_request",
+            "invalid request",
+        )
+        return any(pattern in lowered for pattern in explicit_patterns)
 
     def _get_remaining_time(self, profile: ProfileConfig) -> Optional[int]:
         """Get remaining session time in seconds.

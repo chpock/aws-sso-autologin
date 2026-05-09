@@ -7,7 +7,11 @@ This module provides functions to interact with AWS CLI for:
 """
 
 import json
+import os
+import shlex
+import stat
 import subprocess
+import tempfile
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import List, NamedTuple, Optional, Tuple
@@ -201,7 +205,7 @@ def _is_sso_expired_error(error_message: str) -> bool:
 
 def run_sso_login(
     profile: str,
-    browser: Optional[str] = None,
+    browser: Optional[str | list[str]] = None,
     timeout: int = 180,
 ) -> Tuple[bool, str]:
     """Run AWS SSO login for a profile.
@@ -214,23 +218,23 @@ def run_sso_login(
     Returns:
         Tuple of (success: bool, error_message: str)
     """
+    wrapper_path: Optional[str] = None
+    wrapper_dir: Optional[str] = None
+
     try:
         command = ["sso", "login", "--profile", profile]
-        
+
         env = None
         if browser:
-            # Set BROWSER environment variable for SSO login
-            import os
             env = os.environ.copy()
-            env["BROWSER"] = browser
-            logger.debug(f"Using custom browser: {browser}")
-        
+            wrapper_path, wrapper_dir = _create_browser_wrapper(browser)
+            _validate_wrapper_path(wrapper_path)
+            env["BROWSER"] = wrapper_path
+            logger.debug("Using browser wrapper for profile '%s': %s", profile, wrapper_path)
+
         logger.info(f"Starting SSO login for profile '{profile}'")
-        
-        # Note: SSO login requires user interaction, so we pass through
-        # stdin/stdout/stderr to allow browser interaction
+
         full_command = ["aws"] + command
-        
         result = subprocess.run(
             full_command,
             env=env,
@@ -238,15 +242,22 @@ def run_sso_login(
             text=True,
             timeout=timeout,
         )
-        
+
         if result.returncode == 0:
             logger.info(f"SSO login successful for profile '{profile}'")
             return True, ""
-        else:
-            error_msg = result.stderr.strip() if result.stderr else "Unknown error"
-            logger.error(f"SSO login failed for profile '{profile}': {error_msg[:200]}")
-            return False, error_msg
-            
+
+        error_msg = result.stderr.strip() if result.stderr else "Unknown error"
+        if wrapper_path and result.returncode in (126, 127):
+            metadata = _wrapper_metadata(wrapper_path)
+            error_msg = (
+                "Browser wrapper failed to execute. "
+                f"{error_msg}. {metadata}"
+            )
+
+        logger.error(f"SSO login failed for profile '{profile}': {error_msg[:200]}")
+        return False, error_msg
+
     except subprocess.TimeoutExpired:
         error_msg = f"SSO login timed out after {timeout}s"
         logger.error(error_msg)
@@ -255,6 +266,81 @@ def run_sso_login(
         error_msg = f"Failed to run SSO login: {e}"
         logger.error(error_msg)
         return False, error_msg
+    finally:
+        _cleanup_browser_wrapper(wrapper_path, wrapper_dir)
+
+
+def _create_browser_wrapper(browser: str | list[str]) -> tuple[str, str]:
+    """Create a secure executable wrapper script for browser override."""
+    command = _normalize_browser_command(browser)
+    if not command:
+        raise AWSCliError("Browser override command is empty")
+
+    wrapper_dir = tempfile.mkdtemp(prefix="aws-sso-browser-")
+    wrapper_path = os.path.join(wrapper_dir, "browser-wrapper.sh")
+
+    fd = os.open(wrapper_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o700)
+    script_lines = [
+        "#!/bin/sh",
+        "exec " + " ".join(shlex.quote(arg) for arg in command) + ' "$@"',
+        "",
+    ]
+
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(script_lines))
+
+    os.chmod(wrapper_path, 0o700)
+    return wrapper_path, wrapper_dir
+
+
+def _normalize_browser_command(browser: str | list[str]) -> list[str]:
+    """Normalize browser override to argv list."""
+    if isinstance(browser, str):
+        return shlex.split(browser)
+    return [str(part) for part in browser]
+
+
+def _validate_wrapper_path(wrapper_path: str) -> None:
+    """Reject symlink/race surprises before wrapper execution."""
+    if os.path.islink(wrapper_path):
+        raise AWSCliError("Browser wrapper path cannot be a symlink")
+
+    stats = os.lstat(wrapper_path)
+    if not stat.S_ISREG(stats.st_mode):
+        raise AWSCliError("Browser wrapper path must be a regular file")
+
+    mode = stat.S_IMODE(stats.st_mode)
+    if mode != 0o700:
+        raise AWSCliError(f"Browser wrapper permissions must be 0700, got {oct(mode)}")
+
+
+def _wrapper_metadata(wrapper_path: str) -> str:
+    """Return wrapper diagnostics metadata for execution failures."""
+    try:
+        stats = os.lstat(wrapper_path)
+        mode = stat.S_IMODE(stats.st_mode)
+        return (
+            f"wrapper path={wrapper_path}, size={stats.st_size} bytes, "
+            f"permissions={oct(mode)}"
+        )
+    except OSError:
+        return f"wrapper path={wrapper_path}, permissions=unknown"
+
+
+def _cleanup_browser_wrapper(wrapper_path: Optional[str], wrapper_dir: Optional[str]) -> None:
+    """Best-effort cleanup for wrapper file and temporary directory."""
+    if wrapper_path:
+        try:
+            if os.path.exists(wrapper_path) or os.path.islink(wrapper_path):
+                os.remove(wrapper_path)
+        except OSError:
+            logger.warning("Failed to remove browser wrapper: %s", wrapper_path)
+
+    if wrapper_dir:
+        try:
+            os.rmdir(wrapper_dir)
+        except OSError:
+            logger.debug("Wrapper temp directory not removed: %s", wrapper_dir)
 
 
 def discover_profiles() -> List[ProfileInfo]:

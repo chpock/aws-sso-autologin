@@ -1,5 +1,8 @@
 """Tests for AWS module."""
 
+import os
+import stat
+
 import pytest
 from datetime import datetime
 from unittest.mock import patch, MagicMock, call
@@ -159,3 +162,36 @@ def test_get_profile_sso_config_exists():
     """Test get_profile_sso_config function exists and is callable."""
     from aws_sso_autologin.aws import get_profile_sso_config
     assert callable(get_profile_sso_config)
+
+
+def test_run_sso_login_browser_override_uses_secure_wrapper():
+    wrapper_paths = []
+
+    def fake_run(command, env=None, capture_output=True, text=True, timeout=0):
+        assert command[:4] == ["aws", "sso", "login", "--profile"]
+        wrapper_path = env["BROWSER"]
+        wrapper_paths.append(wrapper_path)
+        assert os.path.exists(wrapper_path)
+        mode = stat.S_IMODE(os.stat(wrapper_path).st_mode)
+        assert mode == 0o700
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("subprocess.run", side_effect=fake_run):
+        success, error = run_sso_login("test-profile", browser="firefox --new-window")
+
+    assert success is True
+    assert error == ""
+    assert len(wrapper_paths) == 1
+    assert not os.path.exists(wrapper_paths[0])
+
+
+def test_run_sso_login_wrapper_failure_reports_diagnostics():
+    def fake_run(command, env=None, capture_output=True, text=True, timeout=0):
+        return MagicMock(returncode=126, stdout="", stderr="permission denied")
+
+    with patch("subprocess.run", side_effect=fake_run):
+        success, error = run_sso_login("test-profile", browser="firefox")
+
+    assert success is False
+    assert "wrapper" in error.lower()
+    assert "permissions" in error.lower()

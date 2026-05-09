@@ -1,322 +1,551 @@
 """System tray UI components."""
 
-from dataclasses import dataclass, field
-from typing import Optional, Dict, List, Callable
-from datetime import datetime, timedelta
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from typing import Callable, Optional
 
-from PySide6.QtWidgets import (
-    QSystemTrayIcon, QMenu, QWidget, QVBoxLayout, QLabel,
-    QTableWidget, QTableWidgetItem, QHeaderView, QApplication
-)
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QIcon, QAction
+from PySide6.QtGui import QAction, QIcon
+from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QLabel,
+    QHeaderView,
+    QMenu,
+    QSystemTrayIcon,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
-from aws_sso_autologin.constants import STATUS_WINDOW_REFRESH_MS, TOOLTIP_THROTTLE_MS, PROFILE_MENU_LIMIT
+from aws_sso_autologin.constants import (
+    MAX_PROFILES_IN_ROOT_MENU,
+    MAX_SUBMENU_PROFILES,
+    STATUS_WINDOW_REFRESH_MS,
+    TOOLTIP_THROTTLE_MS,
+)
 from aws_sso_autologin.logger import get_logger
 
 logger = get_logger(__name__)
 
 
+class ProfileState(Enum):
+    """Profile row states from the UX state matrix."""
+
+    OK = "ok"
+    SYNCING = "syncing"
+    WARNING = "warning"
+    ERROR = "error"
+    PAUSED_OK = "paused_ok"
+
+
 @dataclass
 class ProfileStatus:
-    """Status information for a single profile."""
+    """Status information for a single profile row."""
+
     profile_name: str
-    is_logged_in: bool = False
+    state: ProfileState = ProfileState.SYNCING
     last_login_time: Optional[datetime] = None
     next_refresh_time: Optional[datetime] = None
     queue_position: Optional[int] = None
+    short_reason: Optional[str] = None
+    diagnostics_summary: Optional[str] = None
+    diagnostics_details: Optional[str] = None
+
+    # Backward-compatible fields used by early scaffolding tests/code.
+    is_logged_in: Optional[bool] = None
     error_message: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.error_message and not self.short_reason:
+            self.short_reason = self.error_message
+
+        if self.is_logged_in is None:
+            return
+
+        if self.state != ProfileState.SYNCING:
+            return
+
+        if self.short_reason:
+            self.state = ProfileState.ERROR
+        elif self.is_logged_in:
+            self.state = ProfileState.OK
+        else:
+            self.state = ProfileState.WARNING
 
 
 class StatusWindowProxy:
-    """Lazy-initialized status window showing session details.
-    
-    Per product spec V1, StatusTray owns the window creation via __show_status.
-    This proxy manages the window lifecycle and data binding.
-    """
-    
-    def __init__(self):
+    """Lazy-initialized status window showing session details."""
+
+    def __init__(self) -> None:
         self._window: Optional[QWidget] = None
         self._table: Optional[QTableWidget] = None
-        self._profiles: Dict[str, ProfileStatus] = {}
+        self._profiles: dict[str, ProfileStatus] = {}
         self._refresh_timer: Optional[QTimer] = None
-    
+
     def ensure_window(self) -> QWidget:
         """Ensure the status window exists and return it."""
         if self._window is None:
             self._window = QWidget()
             self._window.setWindowTitle("AWS SSO Session Status")
             self._window.setMinimumSize(600, 400)
-            
+
             layout = QVBoxLayout()
             self._window.setLayout(layout)
-            
-            # Header
+
             header = QLabel("Active AWS SSO Sessions")
             header.setStyleSheet("font-weight: bold; font-size: 14px; padding: 10px;")
             layout.addWidget(header)
-            
-            # Status table
+
             self._table = QTableWidget(0, 5)
-            self._table.setHorizontalHeaderLabels([
-                "Profile", "Status", "Last Login", "Next Refresh", "Queue"
-            ])
+            self._table.setHorizontalHeaderLabels(
+                ["Profile", "Status", "Last Login", "Next Refresh", "Queue"]
+            )
             self._table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
             self._table.setSelectionBehavior(QTableWidget.SelectRows)
             self._table.setEditTriggers(QTableWidget.NoEditTriggers)
             layout.addWidget(self._table)
-            
-            # Refresh timer
+
             self._refresh_timer = QTimer()
             self._refresh_timer.timeout.connect(self._update_display)
             self._refresh_timer.start(STATUS_WINDOW_REFRESH_MS)
-            
+
             logger.debug("StatusWindowProxy: Window created")
-        
+
         return self._window
-    
+
     def show(self) -> None:
         """Show the status window."""
         window = self.ensure_window()
         window.show()
         window.raise_()
         window.activateWindow()
-        logger.debug("StatusWindowProxy: Window shown")
-    
+
     def hide(self) -> None:
         """Hide the status window."""
         if self._window is not None:
             self._window.hide()
-            logger.debug("StatusWindowProxy: Window hidden")
-    
+
     def update_profile(self, status: ProfileStatus) -> None:
         """Update status for a profile."""
         self._profiles[status.profile_name] = status
         if self._window is not None:
             self._update_display()
-    
+
     def remove_profile(self, profile_name: str) -> None:
         """Remove a profile from display."""
-        if profile_name in self._profiles:
-            del self._profiles[profile_name]
-            if self._window is not None:
-                self._update_display()
-    
+        self._profiles.pop(profile_name, None)
+        if self._window is not None:
+            self._update_display()
+
     def _update_display(self) -> None:
-        """Refresh the table display."""
         if self._table is None:
             return
-        
+
         self._table.setRowCount(len(self._profiles))
-        
+
         for row, (name, status) in enumerate(sorted(self._profiles.items())):
-            # Profile name
             self._table.setItem(row, 0, QTableWidgetItem(name))
-            
-            # Status
-            if status.error_message:
-                status_text = f"Error: {status.error_message[:30]}"
-                status_item = QTableWidgetItem(status_text)
-                status_item.setForeground(Qt.red)
-            elif status.is_logged_in:
-                status_item = QTableWidgetItem("Logged In")
-                status_item.setForeground(Qt.darkGreen)
-            else:
-                status_item = QTableWidgetItem("Not Logged In")
-            self._table.setItem(row, 1, status_item)
-            
-            # Last login
+            self._table.setItem(row, 1, self._status_item(status))
+
             last_login = ""
             if status.last_login_time:
                 last_login = status.last_login_time.strftime("%Y-%m-%d %H:%M:%S")
             self._table.setItem(row, 2, QTableWidgetItem(last_login))
-            
-            # Next refresh
+
             next_refresh = ""
             if status.next_refresh_time:
                 next_refresh = status.next_refresh_time.strftime("%Y-%m-%d %H:%M:%S")
-            elif status.is_logged_in:
+            elif status.state == ProfileState.SYNCING:
                 next_refresh = "Calculating..."
             self._table.setItem(row, 3, QTableWidgetItem(next_refresh))
-            
-            # Queue position
+
             queue = ""
             if status.queue_position is not None:
                 queue = str(status.queue_position)
             self._table.setItem(row, 4, QTableWidgetItem(queue))
-    
+
+    def _status_item(self, status: ProfileStatus) -> QTableWidgetItem:
+        if status.state == ProfileState.ERROR:
+            reason = status.short_reason or "Unknown"
+            item = QTableWidgetItem(f"Error: {reason}")
+            item.setForeground(Qt.red)
+            return item
+
+        if status.state == ProfileState.WARNING:
+            reason = status.short_reason or "Connectivity issue"
+            item = QTableWidgetItem(f"Warning: {reason}")
+            item.setForeground(Qt.darkYellow)
+            return item
+
+        if status.state == ProfileState.SYNCING:
+            return QTableWidgetItem("Syncing...")
+
+        if status.state == ProfileState.PAUSED_OK:
+            return QTableWidgetItem("OK (paused)")
+
+        item = QTableWidgetItem("OK")
+        item.setForeground(Qt.darkGreen)
+        return item
+
     def close(self) -> None:
         """Close and cleanup the window."""
         if self._refresh_timer is not None:
             self._refresh_timer.stop()
             self._refresh_timer = None
-        
+
         if self._window is not None:
             self._window.close()
             self._window = None
             self._table = None
-        
-        logger.debug("StatusWindowProxy: Window closed")
+
+
+class ErrorDetailsDialog(QDialog):
+    """Modal diagnostics dialog for warning/error profile states."""
+
+    SECTION_ORDER = [
+        "Summary",
+        "Incident evidence",
+        "Command",
+        "Exit code",
+        "stderr",
+        "stdout",
+        "Timestamp",
+    ]
+
+    def __init__(self, sections: dict[str, str], parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("AWS SSO Autologin Diagnostics")
+        self.resize(760, 480)
+        self.section_order = list(self.SECTION_ORDER)
+
+        layout = QFormLayout(self)
+
+        for section in self.section_order:
+            value = sections.get(section, "")
+            field = QLabel(value)
+            field.setWordWrap(True)
+            field.setTextInteractionFlags(
+                Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard
+            )
+            layout.addRow(QLabel(section), field)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+    @classmethod
+    def from_text(
+        cls,
+        summary: str,
+        details: str,
+        parent: Optional[QWidget] = None,
+    ) -> "ErrorDetailsDialog":
+        sections = {
+            "Summary": summary,
+            "Incident evidence": "Incident evidence unavailable: retention window exceeded.",
+            "Command": "",
+            "Exit code": "",
+            "stderr": "",
+            "stdout": "",
+            "Timestamp": "",
+        }
+
+        mapping = {
+            "incident evidence": "Incident evidence",
+            "command": "Command",
+            "exit code": "Exit code",
+            "stderr": "stderr",
+            "stdout": "stdout",
+            "timestamp": "Timestamp",
+            "summary": "Summary",
+        }
+
+        for line in details.splitlines():
+            if ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            normalized = key.strip().lower()
+            section = mapping.get(normalized)
+            if section is None:
+                continue
+            sections[section] = value.strip()
+
+        return cls(sections=sections, parent=parent)
 
 
 class StatusTray:
-    """System tray icon with menu and status management.
-    
-    Implements the tray surface per UX spec with:
-    - Single-item cache: "Logged In: N" (static)
-    - Menu: Status Window, 25-item profile limit, overflow submenus
-    - Tooltip: 5-second throttle, dynamic session minutes
-    - Icon: static (same for all states in V1)
-    """
-    
-    def __init__(self, parent: Optional[QWidget] = None):
+    """System tray icon with control row, profile rows, and overflow menus."""
+
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        on_toggle_monitoring: Optional[Callable[[bool], None]] = None,
+        on_quit: Optional[Callable[[], None]] = None,
+        on_show_diagnostics: Optional[Callable[[str, str], None]] = None,
+    ) -> None:
         self._parent = parent
-        self._profiles: Dict[str, ProfileStatus] = {}
-        self._logged_in_count: int = 0
+        self._profiles: dict[str, ProfileStatus] = {}
+        self._monitoring_enabled = True
+        self._is_syncing = False
+        self._global_error_summary: Optional[str] = None
+        self._global_error_details: str = ""
+        self._ok_count = 0
         self._status_window: Optional[StatusWindowProxy] = None
-        
-        # Create tray icon
+        self._details_dialog: Optional[ErrorDetailsDialog] = None
+        self.current_icon_state = "enabled-ok"
+
+        self._on_toggle_monitoring = on_toggle_monitoring
+        self._on_quit = on_quit
+        self._on_show_diagnostics = on_show_diagnostics
+
         self.tray_icon = QSystemTrayIcon(parent)
-        self._update_tooltip()
+        self.tray_icon.setIcon(QIcon())
         self.tray_icon.setVisible(True)
-        
-        # Create context menu
+
         self._menu = QMenu(parent)
         self.tray_icon.setContextMenu(self._menu)
-        
-        # Tooltip throttle timer
+
         self._tooltip_timer = QTimer()
         self._tooltip_timer.setSingleShot(True)
         self._tooltip_timer.timeout.connect(self._update_tooltip)
-        
-        # Build initial menu
+
         self._rebuild_menu()
-        
-        logger.debug("StatusTray: Initialized")
-    
+        self._update_icon_state()
+        self._update_tooltip()
+
+    def set_monitoring_enabled(self, enabled: bool) -> None:
+        """Set monitoring state and refresh control row/icon state."""
+        self._monitoring_enabled = enabled
+        if self._on_toggle_monitoring is not None:
+            self._on_toggle_monitoring(enabled)
+        self._rebuild_menu()
+        self._update_icon_state()
+        self._throttled_tooltip_update()
+
+    def set_syncing(self, syncing: bool) -> None:
+        """Set global syncing flag used by first-row/icon semantics."""
+        self._is_syncing = syncing
+        self._rebuild_menu()
+        self._update_icon_state()
+        self._throttled_tooltip_update()
+
+    def set_global_error(self, summary: Optional[str], details: str = "") -> None:
+        """Set or clear first-row global error action state."""
+        self._global_error_summary = summary
+        self._global_error_details = details
+        self._rebuild_menu()
+        self._update_icon_state()
+        self._throttled_tooltip_update()
+
+    def update_profile(self, status: ProfileStatus) -> None:
+        """Update status for one profile and refresh visible tray state."""
+        self._profiles[status.profile_name] = status
+
+        if self._status_window is not None:
+            self._status_window.update_profile(status)
+
+        self._recount_ok_profiles()
+        self._rebuild_menu()
+        self._update_icon_state()
+        self._throttled_tooltip_update()
+
+    def remove_profile(self, profile_name: str) -> None:
+        """Remove a profile and refresh visible tray state."""
+        self._profiles.pop(profile_name, None)
+
+        if self._status_window is not None:
+            self._status_window.remove_profile(profile_name)
+
+        self._recount_ok_profiles()
+        self._rebuild_menu()
+        self._update_icon_state()
+        self._throttled_tooltip_update()
+
+    def _recount_ok_profiles(self) -> None:
+        ok_states = {ProfileState.OK, ProfileState.PAUSED_OK}
+        self._ok_count = sum(
+            1 for status in self._profiles.values() if self._effective_state(status) in ok_states
+        )
+
+    def _update_icon_state(self) -> None:
+        icon_state = self._compute_icon_state()
+        self.current_icon_state = icon_state
+        self.tray_icon.setIcon(QIcon())
+
+    def _compute_icon_state(self) -> str:
+        if not self._monitoring_enabled:
+            return "disabled-paused"
+
+        if self._global_error_summary:
+            return "enabled-error"
+
+        states = {self._effective_state(status) for status in self._profiles.values()}
+        if ProfileState.ERROR in states:
+            return "enabled-error"
+        if ProfileState.WARNING in states:
+            return "enabled-warning"
+        if self._is_syncing or ProfileState.SYNCING in states:
+            return "enabled-syncing"
+        return "enabled-ok"
+
+    def _first_row_label(self) -> str:
+        if self._global_error_summary:
+            return "Show startup/sync error"
+        if self._is_syncing:
+            return "Synchronizing..."
+        if self._monitoring_enabled:
+            return "Disable auto-login"
+        return "Enable auto-login"
+
+    def _on_first_row_triggered(self) -> None:
+        if self._global_error_summary:
+            self._emit_diagnostics(
+                self._global_error_summary,
+                self._global_error_details or "No diagnostics available.",
+            )
+            return
+
+        if self._is_syncing:
+            return
+
+        self.set_monitoring_enabled(not self._monitoring_enabled)
+
+    def _rebuild_menu(self) -> None:
+        self._menu.clear()
+
+        first_action = QAction(self._first_row_label(), self._menu)
+        first_action.triggered.connect(self._on_first_row_triggered)
+        if self._is_syncing and not self._global_error_summary:
+            first_action.setEnabled(False)
+        self._menu.addAction(first_action)
+        self._menu.addSeparator()
+
+        profile_names = sorted(self._profiles.keys(), key=str.lower)
+        if len(profile_names) > MAX_PROFILES_IN_ROOT_MENU:
+            self._add_overflow_submenus(profile_names)
+        else:
+            self._add_profile_rows(self._menu, profile_names)
+
+        self._menu.addSeparator()
+
+        quit_action = QAction("Quit", self._menu)
+        quit_action.triggered.connect(self._on_quit_triggered)
+        self._menu.addAction(quit_action)
+
+    def _add_overflow_submenus(self, profile_names: list[str]) -> None:
+        for index in range(0, len(profile_names), MAX_SUBMENU_PROFILES):
+            chunk = profile_names[index : index + MAX_SUBMENU_PROFILES]
+            start_idx = index + 1
+            end_idx = index + len(chunk)
+            submenu = QMenu(f"Profiles {start_idx}-{end_idx}", self._menu)
+            self._add_profile_rows(submenu, chunk)
+            self._menu.addMenu(submenu)
+
+    def _add_profile_rows(self, menu: QMenu, profile_names: list[str]) -> None:
+        for name in profile_names:
+            status = self._profiles[name]
+            action = QAction(self._format_profile_label(status), menu)
+            action.triggered.connect(lambda checked=False, profile_name=name: self._on_profile_selected(profile_name))
+            menu.addAction(action)
+
+    def _on_profile_selected(self, profile_name: str) -> None:
+        status = self._profiles[profile_name]
+        state = self._effective_state(status)
+
+        if state in (ProfileState.WARNING, ProfileState.ERROR):
+            summary = status.diagnostics_summary or (
+                f'Auto-login failed for profile "{profile_name}". Click to view full diagnostics.'
+            )
+            details = status.diagnostics_details or (
+                "Summary\n"
+                "Incident evidence unavailable: retention window exceeded.\n"
+                "Command\nExit code\nstderr\nstdout\nTimestamp"
+            )
+            self._emit_diagnostics(summary, details)
+            return
+
+        self._menu.hide()
+
+    def _on_quit_triggered(self) -> None:
+        if self._on_quit is not None:
+            self._on_quit()
+
+    def _emit_diagnostics(self, summary: str, details: str) -> None:
+        if self._on_show_diagnostics is not None:
+            self._on_show_diagnostics(summary, details)
+            return
+
+        self._details_dialog = ErrorDetailsDialog.from_text(
+            summary=summary,
+            details=details,
+            parent=self._parent,
+        )
+        self._details_dialog.show()
+
+    def _effective_state(self, status: ProfileStatus) -> ProfileState:
+        if not self._monitoring_enabled and status.state == ProfileState.OK:
+            return ProfileState.PAUSED_OK
+        return status.state
+
+    def _format_profile_label(self, status: ProfileStatus) -> str:
+        state = self._effective_state(status)
+        name = status.profile_name
+
+        if state == ProfileState.SYNCING:
+            return f"Profile: {name} - Syncing..."
+        if state == ProfileState.WARNING:
+            reason = status.short_reason or "Connectivity issue"
+            return f"Profile: {name} - Warning: {reason}"
+        if state == ProfileState.ERROR:
+            reason = status.short_reason or "Unknown error"
+            return f"Profile: {name} - Error: {reason}"
+        if state == ProfileState.PAUSED_OK:
+            return f"Profile: {name} - OK (paused)"
+
+        if status.last_login_time is None:
+            return f"Profile: {name} - OK, last refresh: unknown"
+
+        age = datetime.now() - status.last_login_time
+        seconds = max(int(age.total_seconds()), 0)
+        if seconds < 60:
+            duration = f"{seconds}s ago"
+        elif seconds < 3600:
+            duration = f"{seconds // 60}m ago"
+        else:
+            duration = f"{seconds // 3600}h ago"
+
+        return f"Profile: {name} - OK, last refresh: {duration}"
+
     def _update_tooltip(self) -> None:
-        """Update tray icon tooltip with logged-in count."""
-        tooltip = f"AWS SSO Autologin\nLogged In: {self._logged_in_count}"
+        total = len(self._profiles)
+        tooltip = (
+            "AWS SSO Autologin\n"
+            f"Profiles OK: {self._ok_count}/{total}\n"
+            f"State: {self.current_icon_state}"
+        )
         self.tray_icon.setToolTip(tooltip)
-    
+
     def _throttled_tooltip_update(self) -> None:
-        """Schedule a tooltip update with 5-second throttle."""
         if not self._tooltip_timer.isActive():
             self._tooltip_timer.start(TOOLTIP_THROTTLE_MS)
-    
-    def _show_status_window(self) -> None:
-        """Show the status window."""
-        if self._status_window is None:
-            self._status_window = StatusWindowProxy()
-            # Sync existing profiles
-            for status in self._profiles.values():
-                self._status_window.update_profile(status)
-        self._status_window.show()
-    
-    def _rebuild_menu(self) -> None:
-        """Rebuild the context menu with current profiles."""
-        self._menu.clear()
-        
-        # Status Window action
-        status_action = QAction("Status Window", self._menu)
-        status_action.triggered.connect(self._show_status_window)
-        self._menu.addAction(status_action)
-        
-        self._menu.addSeparator()
-        
-        # Profile entries
-        profile_names = sorted(self._profiles.keys(), key=str.lower)
-        
-        if len(profile_names) <= PROFILE_MENU_LIMIT:
-            # All profiles fit in root menu
-            for name in profile_names:
-                status = self._profiles[name]
-                action = QAction(self._format_profile_label(status), self._menu)
-                self._menu.addAction(action)
-        else:
-            # Need overflow submenus
-            self._build_overflow_menu(profile_names)
-        
-        self._menu.addSeparator()
-        
-        # Quit action
-        quit_action = QAction("Quit", self._menu)
-        self._menu.addAction(quit_action)
-    
-    def _build_overflow_menu(self, profile_names: List[str]) -> None:
-        """Build menu with overflow submenus for high cardinality."""
-        # Group profiles into chunks of PROFILE_MENU_LIMIT
-        for i in range(0, len(profile_names), PROFILE_MENU_LIMIT):
-            chunk = profile_names[i:i + PROFILE_MENU_LIMIT]
-            start_idx = i + 1
-            end_idx = min(i + PROFILE_MENU_LIMIT, len(profile_names))
-            
-            submenu = QMenu(f"Profiles {start_idx}-{end_idx}", self._menu)
-            
-            for name in chunk:
-                status = self._profiles[name]
-                action = QAction(self._format_profile_label(status), submenu)
-                submenu.addAction(action)
-            
-            self._menu.addMenu(submenu)
-    
-    def _format_profile_label(self, status: ProfileStatus) -> str:
-        """Format profile label for menu display."""
-        if status.error_message:
-            return f"Profile: {status.profile_name} - Error"
-        elif status.is_logged_in:
-            return f"Profile: {status.profile_name} - OK"
-        else:
-            return f"Profile: {status.profile_name} - Not Logged In"
-    
-    def update_profile(self, status: ProfileStatus) -> None:
-        """Update status for a profile and rebuild menu if needed."""
-        old_status = self._profiles.get(status.profile_name)
-        self._profiles[status.profile_name] = status
-        
-        # Update logged-in count
-        if old_status and old_status.is_logged_in:
-            self._logged_in_count -= 1
-        if status.is_logged_in:
-            self._logged_in_count += 1
-        
-        # Throttled tooltip update
-        self._throttled_tooltip_update()
-        
-        # Rebuild menu if profile count changes
-        menu_needs_rebuild = (
-            old_status is None or  # New profile
-            (len(self._profiles) <= PROFILE_MENU_LIMIT) != (len(self._profiles) - (0 if old_status else 1) <= PROFILE_MENU_LIMIT)  # Overflow boundary crossed
-        )
-        
-        if menu_needs_rebuild:
-            self._rebuild_menu()
-        else:
-            # Just update status window
-            if self._status_window:
-                self._status_window.update_profile(status)
-    
-    def remove_profile(self, profile_name: str) -> None:
-        """Remove a profile from the tray."""
-        if profile_name in self._profiles:
-            old_status = self._profiles[profile_name]
-            if old_status.is_logged_in:
-                self._logged_in_count -= 1
-            del self._profiles[profile_name]
-            self._throttled_tooltip_update()
-            self._rebuild_menu()
-    
+
     def close(self) -> None:
         """Clean up tray resources."""
-        if self._tooltip_timer:
+        if self._tooltip_timer is not None:
             self._tooltip_timer.stop()
-        
-        if self._status_window:
+
+        if self._status_window is not None:
             self._status_window.close()
             self._status_window = None
-        
-        if self.tray_icon:
+
+        if self._details_dialog is not None:
+            self._details_dialog.close()
+            self._details_dialog = None
+
+        if self.tray_icon is not None:
             self.tray_icon.setVisible(False)
             self.tray_icon = None
-        
-        logger.debug("StatusTray: Closed")

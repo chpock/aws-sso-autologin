@@ -6,7 +6,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from aws_sso_autologin.models import ProfileConfig, RenewalStatus, SessionInfo
+from aws_sso_autologin.models import (
+    ProfileConfig,
+    RenewalStatus,
+    SessionFailureType,
+    SessionInfo,
+)
 from aws_sso_autologin.operator import (
     CHECK_INTERVAL_SECONDS,
     HEARTBEAT_TIMEOUT_SECONDS,
@@ -136,7 +141,7 @@ def test_session_operator_check_and_renew_active_session():
 
 
 def test_session_operator_check_and_renew_threshold():
-    """Test check_and_renew when at threshold (50% = 30 min)."""
+    """Threshold alone does not trigger renewal without classifier hit."""
     mock_checker = MagicMock()
     mock_checker.get_session_info.return_value = SessionInfo(
         profile_name="test",
@@ -148,15 +153,14 @@ def test_session_operator_check_and_renew_threshold():
     profile = ProfileConfig(name="test")
 
     with patch.object(operator._login_operator, "enqueue") as mock_enqueue:
-        mock_enqueue.return_value = LoginStatus.PENDING
         status = operator.check_and_renew(profile)
 
-    assert status == RenewalStatus.TRIGGERED
-    mock_enqueue.assert_called_once_with("test")
+    assert status == RenewalStatus.NOT_NEEDED
+    mock_enqueue.assert_not_called()
 
 
 def test_session_operator_check_and_renew_below_threshold():
-    """Test check_and_renew when below threshold."""
+    """Active sessions do not renew without explicit classifier hit."""
     mock_checker = MagicMock()
     mock_checker.get_session_info.return_value = SessionInfo(
         profile_name="test",
@@ -168,20 +172,40 @@ def test_session_operator_check_and_renew_below_threshold():
     profile = ProfileConfig(name="test")
 
     with patch.object(operator._login_operator, "enqueue") as mock_enqueue:
-        mock_enqueue.return_value = LoginStatus.PENDING
         status = operator.check_and_renew(profile)
 
-    assert status == RenewalStatus.TRIGGERED
-    mock_enqueue.assert_called_once_with("test")
+    assert status == RenewalStatus.NOT_NEEDED
+    mock_enqueue.assert_not_called()
 
 
 def test_session_operator_check_and_renew_inactive():
-    """Test check_and_renew with inactive session."""
+    """Inactive sessions do not auto-login without explicit expired signal."""
     mock_checker = MagicMock()
     mock_checker.get_session_info.return_value = SessionInfo(
         profile_name="test",
         is_active=False,
         seconds_remaining=0,
+        failure_type=SessionFailureType.OTHER,
+    )
+
+    operator = SessionOperator(checker=mock_checker)
+    profile = ProfileConfig(name="test")
+
+    with patch.object(operator._login_operator, "enqueue") as mock_enqueue:
+        status = operator.check_and_renew(profile)
+
+    assert status == RenewalStatus.UNKNOWN
+    mock_enqueue.assert_not_called()
+
+
+def test_session_operator_check_and_renew_inactive_expired_or_invalid():
+    """Inactive expired/invalid sessions trigger queued login."""
+    mock_checker = MagicMock()
+    mock_checker.get_session_info.return_value = SessionInfo(
+        profile_name="test",
+        is_active=False,
+        seconds_remaining=0,
+        failure_type=SessionFailureType.EXPIRED_OR_INVALID,
     )
 
     operator = SessionOperator(checker=mock_checker)
@@ -215,12 +239,12 @@ def test_session_operator_check_and_renew_unknown_time():
 
 
 def test_session_operator_get_profiles_needing_renewal():
-    """Test getting all profiles needing renewal."""
+    """Only profiles with explicit expired/invalid classification need renewal."""
     mock_checker = MagicMock()
     mock_checker.get_session_info.side_effect = [
         SessionInfo("p1", True, 3600),  # Not needed
-        SessionInfo("p2", True, 1000),  # Below threshold
-        SessionInfo("p3", False, 0),  # Inactive
+        SessionInfo("p2", True, 1000),  # Active with low remaining time
+        SessionInfo("p3", False, 0, failure_type=SessionFailureType.EXPIRED_OR_INVALID),
     ]
 
     operator = SessionOperator(checker=mock_checker)
@@ -233,7 +257,7 @@ def test_session_operator_get_profiles_needing_renewal():
     needs_renewal = operator.get_all_profiles_needing_renewal(profiles)
 
     assert "p1" not in needs_renewal
-    assert "p2" in needs_renewal
+    assert "p2" not in needs_renewal
     assert "p3" in needs_renewal
 
 
@@ -275,7 +299,7 @@ def test_login_operator_enqueue_locked():
 
 
 def test_login_operator_profile_lock_expires():
-    """Test that profile lock expires after 8 minutes."""
+    """Test that profile lock expires after 5 minutes."""
     operator = LoginOperator()
     # Set lock in the past (more than 8 minutes ago)
     operator._profile_locks["profile1"] = (
@@ -286,7 +310,7 @@ def test_login_operator_profile_lock_expires():
 
 
 def test_login_operator_profile_lock_valid():
-    """Test that profile lock is valid within 8 minutes."""
+    """Test that profile lock is valid within 5 minutes."""
     operator = LoginOperator()
     # Set lock recently
     operator._profile_locks["profile1"] = time.time() - 60  # 1 minute ago
@@ -359,5 +383,5 @@ def test_renewal_threshold_constant():
 
 
 def test_login_lock_constant():
-    """Test that login lock is 8 minutes (480 seconds)."""
-    assert LOGIN_LOCK_SECONDS == 480
+    """Test that login lock is 5 minutes (300 seconds)."""
+    assert LOGIN_LOCK_SECONDS == 300

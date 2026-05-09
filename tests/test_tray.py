@@ -1,12 +1,19 @@
 """Tests for tray module."""
 
+from datetime import datetime, timedelta
+from unittest.mock import MagicMock
+
 import pytest
-from datetime import datetime
+from PySide6.QtWidgets import QApplication
 
-from PySide6.QtWidgets import QApplication, QTableWidget
-from PySide6.QtCore import Qt
-
-from aws_sso_autologin.tray import StatusWindowProxy, ProfileStatus
+from aws_sso_autologin.constants import MAX_PROFILES_IN_ROOT_MENU, MAX_SUBMENU_PROFILES
+from aws_sso_autologin.tray import (
+    ErrorDetailsDialog,
+    ProfileState,
+    ProfileStatus,
+    StatusTray,
+    StatusWindowProxy,
+)
 
 
 @pytest.fixture(scope="session")
@@ -44,7 +51,7 @@ class TestStatusWindowProxy:
         
         status = ProfileStatus(
             profile_name="test-profile",
-            is_logged_in=True,
+            state=ProfileState.OK,
             last_login_time=datetime(2026, 1, 1, 12, 0, 0),
         )
         proxy.update_profile(status)
@@ -56,7 +63,7 @@ class TestStatusWindowProxy:
         proxy = StatusWindowProxy()
         proxy.ensure_window()
         
-        status = ProfileStatus(profile_name="test-profile", is_logged_in=True)
+        status = ProfileStatus(profile_name="test-profile", state=ProfileState.OK)
         proxy.update_profile(status)
         proxy.remove_profile("test-profile")
         
@@ -76,71 +83,219 @@ class TestProfileStatus:
     def test_dataclass_defaults(self):
         status = ProfileStatus(profile_name="test")
         assert status.profile_name == "test"
-        assert status.is_logged_in is False
+        assert status.state == ProfileState.SYNCING
         assert status.last_login_time is None
         assert status.next_refresh_time is None
         assert status.queue_position is None
-        assert status.error_message is None
+        assert status.short_reason is None
     
     def test_dataclass_with_values(self):
         now = datetime.now()
         status = ProfileStatus(
             profile_name="test",
-            is_logged_in=True,
+            state=ProfileState.ERROR,
             last_login_time=now,
             next_refresh_time=now,
             queue_position=1,
-            error_message="Test error"
+            short_reason="Access denied",
         )
-        assert status.is_logged_in is True
+        assert status.state == ProfileState.ERROR
         assert status.queue_position == 1
 
 
 def test_status_tray_init(qapp):
-    from aws_sso_autologin.tray import StatusTray
     tray = StatusTray()
     assert tray is not None
     assert tray.tray_icon is not None
+    tray.close()
 
 
-def test_status_tray_menu_structure(qapp):
-    from aws_sso_autologin.tray import StatusTray
+def test_status_tray_first_row_toggle_contract(qapp):
     tray = StatusTray()
     menu = tray.tray_icon.contextMenu()
     assert menu is not None
     actions = menu.actions()
-    # Should have: Status Window, separator, Quit
-    assert len(actions) >= 3
-    assert "Status Window" in [a.text() for a in actions]
-    assert "Quit" in [a.text() for a in actions]
+    assert actions[0].text() == "Disable auto-login"
+    assert "Quit" in [a.text() for a in actions if not a.isSeparator()]
+    tray.close()
+
+
+def test_status_tray_paused_switches_first_row(qapp):
+    tray = StatusTray()
+    tray.set_monitoring_enabled(False)
+    actions = tray.tray_icon.contextMenu().actions()
+    assert actions[0].text() == "Enable auto-login"
+    assert tray.current_icon_state == "disabled-paused"
+    tray.close()
+
+
+def test_status_tray_global_error_replaces_toggle(qapp):
+    on_diagnostics = MagicMock()
+    tray = StatusTray(on_show_diagnostics=on_diagnostics)
+
+    tray.set_global_error(
+        summary="AWS CLI unavailable",
+        details="aws command not found",
+    )
+
+    first_action = tray.tray_icon.contextMenu().actions()[0]
+    assert first_action.text() == "Show startup/sync error"
+    first_action.trigger()
+    on_diagnostics.assert_called_once()
     tray.close()
 
 
 def test_status_tray_tooltip_format(qapp):
-    from aws_sso_autologin.tray import StatusTray
     tray = StatusTray()
+    status = ProfileStatus(
+        profile_name="test-profile",
+        state=ProfileState.OK,
+        last_login_time=datetime.now() - timedelta(minutes=3),
+    )
+    tray.update_profile(status)
     tooltip = tray.tray_icon.toolTip()
     assert "AWS SSO Autologin" in tooltip
-    assert "Logged In:" in tooltip
+    assert "Profiles OK:" in tooltip
     tray.close()
 
 
-def test_status_tray_profile_update(qapp):
-    from aws_sso_autologin.tray import StatusTray, ProfileStatus
+def test_status_tray_profile_row_copy_ok(qapp):
     tray = StatusTray()
-    status = ProfileStatus(profile_name="test-profile", is_logged_in=True)
+    status = ProfileStatus(
+        profile_name="alpha",
+        state=ProfileState.OK,
+        last_login_time=datetime.now() - timedelta(minutes=1),
+    )
     tray.update_profile(status)
-    assert "test-profile" in tray._profiles
-    assert tray._logged_in_count == 1
+    labels = [a.text() for a in tray.tray_icon.contextMenu().actions() if not a.isSeparator()]
+    assert any(label.startswith("Profile: alpha - OK, last refresh:") for label in labels)
     tray.close()
 
 
-def test_status_tray_profile_remove(qapp):
-    from aws_sso_autologin.tray import StatusTray, ProfileStatus
+def test_status_tray_profile_row_copy_warning_and_error(qapp):
     tray = StatusTray()
-    status = ProfileStatus(profile_name="test-profile", is_logged_in=True)
-    tray.update_profile(status)
-    tray.remove_profile("test-profile")
-    assert "test-profile" not in tray._profiles
-    assert tray._logged_in_count == 0
+    tray.update_profile(ProfileStatus(profile_name="warn", state=ProfileState.WARNING, short_reason="Connectivity issue"))
+    tray.update_profile(ProfileStatus(profile_name="err", state=ProfileState.ERROR, short_reason="Access denied"))
+
+    labels = [a.text() for a in tray.tray_icon.contextMenu().actions() if not a.isSeparator()]
+    assert "Profile: warn - Warning: Connectivity issue" in labels
+    assert "Profile: err - Error: Access denied" in labels
+    tray.close()
+
+
+def test_status_tray_ok_profile_click_closes_menu_no_dialog(qapp):
+    on_diagnostics = MagicMock()
+    tray = StatusTray(on_show_diagnostics=on_diagnostics)
+    tray.update_profile(ProfileStatus(profile_name="ok", state=ProfileState.OK))
+
+    actions = tray.tray_icon.contextMenu().actions()
+    ok_action = next(action for action in actions if action.text().startswith("Profile: ok"))
+    ok_action.trigger()
+
+    on_diagnostics.assert_not_called()
+    tray.close()
+
+
+def test_status_tray_error_profile_click_opens_dialog(qapp):
+    on_diagnostics = MagicMock()
+    tray = StatusTray(on_show_diagnostics=on_diagnostics)
+    tray.update_profile(
+        ProfileStatus(
+            profile_name="broken",
+            state=ProfileState.ERROR,
+            short_reason="Command timed out",
+            diagnostics_summary="Auto-login failed for profile \"broken\". Click to view full diagnostics.",
+            diagnostics_details="Summary\nCommand\nExit code\nstderr\nstdout\nTimestamp",
+        )
+    )
+
+    actions = tray.tray_icon.contextMenu().actions()
+    broken_action = next(action for action in actions if action.text().startswith("Profile: broken"))
+    broken_action.trigger()
+
+    on_diagnostics.assert_called_once()
+    tray.close()
+
+
+def test_status_tray_overflow_uses_40_threshold_and_20_chunks(qapp):
+    tray = StatusTray()
+    for idx in range(MAX_PROFILES_IN_ROOT_MENU + 1):
+        tray.update_profile(
+            ProfileStatus(
+                profile_name=f"profile-{idx:03d}",
+                state=ProfileState.OK,
+            )
+        )
+
+    menu = tray.tray_icon.contextMenu()
+    submenu_labels = [action.text() for action in menu.actions() if action.menu() is not None]
+    assert "Profiles 1-20" in submenu_labels
+    assert "Profiles 21-40" in submenu_labels
+    assert f"Profiles 41-{MAX_PROFILES_IN_ROOT_MENU + 1}" in submenu_labels
+
+    submenus = [action.menu() for action in menu.actions() if action.menu() is not None]
+    assert len(submenus[0].actions()) == MAX_SUBMENU_PROFILES
+    assert len(submenus[1].actions()) == MAX_SUBMENU_PROFILES
+
+    tray.close()
+
+
+def test_status_tray_profile_update_refreshes_existing_label(qapp):
+    tray = StatusTray()
+    tray.update_profile(ProfileStatus(profile_name="alpha", state=ProfileState.SYNCING))
+    tray.update_profile(ProfileStatus(profile_name="alpha", state=ProfileState.ERROR, short_reason="Access denied"))
+
+    labels = [a.text() for a in tray.tray_icon.contextMenu().actions() if not a.isSeparator()]
+    assert "Profile: alpha - Error: Access denied" in labels
+
+    tray.close()
+
+
+def test_error_details_dialog_has_required_section_order(qapp):
+    dialog = ErrorDetailsDialog.from_text(
+        summary="AWS CLI unavailable",
+        details=(
+            "Incident evidence: latest 50 incidents, max 24h\n"
+            "Command: sts_check\n"
+            "Exit code: 1\n"
+            "stderr: failed\n"
+            "stdout: \n"
+            "Timestamp: 2026-05-09T12:00:00Z"
+        ),
+    )
+
+    assert dialog.section_order == [
+        "Summary",
+        "Incident evidence",
+        "Command",
+        "Exit code",
+        "stderr",
+        "stdout",
+        "Timestamp",
+    ]
+
+    dialog.close()
+
+
+def test_status_tray_default_diagnostics_opens_dialog(qapp):
+    tray = StatusTray()
+    tray.update_profile(
+        ProfileStatus(
+            profile_name="warning-profile",
+            state=ProfileState.WARNING,
+            short_reason="Connectivity issue",
+        )
+    )
+
+    warning_action = next(
+        action
+        for action in tray.tray_icon.contextMenu().actions()
+        if action.text().startswith("Profile: warning-profile")
+    )
+    warning_action.trigger()
+
+    assert tray._details_dialog is not None
+    assert tray._details_dialog.isVisible()
+
+    tray._details_dialog.close()
     tray.close()

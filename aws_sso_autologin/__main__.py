@@ -1,18 +1,24 @@
 """Main entry point for AWS SSO Autologin application."""
 
 import sys
+from datetime import datetime
 from typing import Optional, List
 
 from PySide6.QtWidgets import QApplication
 
 from aws_sso_autologin.service import detect_tray_host, check_tray_host_available
-from aws_sso_autologin.tray import StatusTray, ProfileStatus
+from aws_sso_autologin.tray import ProfileState, ProfileStatus, StatusTray
 from aws_sso_autologin.operator import HealthOperator, SessionOperator, LoginOperator
 from aws_sso_autologin.models import ProfileConfig
-from aws_sso_autologin.aws import discover_profiles, ProfileInfo
+from aws_sso_autologin.aws import discover_profiles
 from aws_sso_autologin.logger import get_logger
 
 logger = get_logger(__name__)
+
+TRAY_HOST_REQUIRED_MESSAGE = (
+    "Tray host support is required. Start this app in a Linux session "
+    "with a compatible StatusNotifier/system tray host."
+)
 
 
 class AutologinApp:
@@ -67,6 +73,7 @@ class AutologinApp:
             True if a compatible tray host is available, False otherwise
         """
         if not check_tray_host_available():
+            print(TRAY_HOST_REQUIRED_MESSAGE)
             logger.error("No compatible tray host detected")
             return False
         
@@ -81,7 +88,11 @@ class AutologinApp:
             True if tray was created successfully, False otherwise
         """
         try:
-            self._tray = StatusTray()
+            self._tray = StatusTray(
+                on_toggle_monitoring=self._on_toggle_monitoring,
+                on_quit=self.shutdown,
+                on_show_diagnostics=self._on_show_diagnostics,
+            )
             logger.debug("AutologinApp: StatusTray created")
             return True
         except Exception as e:
@@ -134,20 +145,36 @@ class AutologinApp:
             is_healthy: True if the profile is healthy, False otherwise
         """
         if self._tray:
-            # Find profile config to get SSO info
-            profile_config = None
-            for p in self._profiles:
-                if p.name == profile_name:
-                    profile_config = p
-                    break
-            
             # Create status update for tray
             status = ProfileStatus(
                 profile_name=profile_name,
-                is_logged_in=is_healthy,
+                state=ProfileState.OK if is_healthy else ProfileState.WARNING,
+                short_reason=None if is_healthy else "Connectivity issue",
+                last_login_time=datetime.now() if is_healthy else None,
             )
             self._tray.update_profile(status)
             logger.debug(f"AutologinApp: Status updated for {profile_name}: healthy={is_healthy}")
+
+    def _on_toggle_monitoring(self, enabled: bool) -> None:
+        """Handle first-row enable/disable action from tray menu."""
+        if self._health_operator is None:
+            return
+
+        if enabled:
+            self._health_operator.start()
+            if self._tray is not None:
+                self._tray.set_syncing(True)
+            return
+
+        self._health_operator.stop()
+        if self._tray is not None:
+            self._tray.set_syncing(False)
+
+    def _on_show_diagnostics(self, summary: str, details: str) -> None:
+        """Handle diagnostics action from tray menu."""
+        logger.error("Diagnostics requested: %s", summary)
+        if details:
+            logger.debug("Diagnostics details: %s", details)
     
     def _load_profiles(self) -> bool:
         """Load SSO profiles from AWS config.
@@ -181,7 +208,10 @@ class AutologinApp:
             # Initialize tray with profiles
             if self._tray:
                 for config in self._profiles:
-                    status = ProfileStatus(profile_name=config.name, is_logged_in=False)
+                    status = ProfileStatus(
+                        profile_name=config.name,
+                        state=ProfileState.SYNCING,
+                    )
                     self._tray.update_profile(status)
             
             return True
@@ -232,10 +262,26 @@ class AutologinApp:
         
         # Load profiles
         if not self._load_profiles():
-            logger.warning("No profiles loaded, but continuing anyway")
-        
+            if self._tray is not None:
+                self._tray.set_global_error(
+                    summary="Show startup/sync error",
+                    details="No SSO profiles detected. Monitoring profile sources for changes.",
+                )
+            logger.error("No SSO profiles loaded; exiting")
+            return 1
+
         # Start monitoring
-        self._start_monitoring()
+        if not self._start_monitoring():
+            if self._tray is not None:
+                self._tray.set_global_error(
+                    summary="Show startup/sync error",
+                    details="Failed to start monitoring loop.",
+                )
+            logger.error("Health monitoring failed to start; exiting")
+            return 1
+
+        if self._tray is not None:
+            self._tray.set_syncing(False)
         
         # Run Qt event loop
         logger.info("AutologinApp: Starting Qt event loop")

@@ -51,16 +51,14 @@ def test_classifier_token_limits():
 
 
 def test_classifier_memory_budget():
-    # Verify memory calculations are reasonable (~48 KiB per stream)
-    assert 40 <= CLASSIFIER_MEMORY_KIB_PER_STREAM <= 60
-    # Verify total is consistent with per-stream × streams
+    assert CLASSIFIER_MEMORY_KIB_PER_STREAM == 48
     expected_total_mib = CLASSIFIER_MEMORY_KIB_PER_STREAM * CLASSIFIER_MAX_STREAMS / 1024
     assert CLASSIFIER_MEMORY_MIB_TOTAL == expected_total_mib
 
 
 def test_profile_limits():
-    assert MAX_PROFILES_IN_ROOT_MENU == 25
-    assert MAX_SUBMENU_PROFILES == 25
+    assert MAX_PROFILES_IN_ROOT_MENU == 40
+    assert MAX_SUBMENU_PROFILES == 20
     assert MAX_TOTAL_PROFILES == 100
 
 

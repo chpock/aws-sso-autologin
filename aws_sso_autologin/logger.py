@@ -27,7 +27,7 @@ def get_logger(name: str, level: Optional[int] = None) -> logging.Logger:
     
     # Only add handler if not already configured
     if not logger.handlers:
-        handler = logging.StreamHandler(sys.stderr)
+        handler = logging.StreamHandler(sys.stdout)
         handler.setLevel(level)
         
         formatter = logging.Formatter(

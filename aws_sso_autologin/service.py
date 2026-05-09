@@ -1,10 +1,13 @@
 """Service module for tray host abstraction and environment detection."""
 
+import json
 import os
+import subprocess
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from enum import Enum, auto
-from typing import Optional
+from enum import Enum
+from typing import Callable, Optional
 
 from aws_sso_autologin.logger import get_logger
 
@@ -237,7 +240,11 @@ class ConcreteTrayHost(TrayHost):
     detected desktop environment.
     """
     
-    def __init__(self, info: Optional[TrayHostInfo] = None):
+    def __init__(
+        self,
+        info: Optional[TrayHostInfo] = None,
+        ping_runner: Optional[Callable[..., subprocess.CompletedProcess]] = None,
+    ):
         """Initialize with tray host info.
         
         Args:
@@ -245,20 +252,73 @@ class ConcreteTrayHost(TrayHost):
         """
         self._info = info or detect_tray_host()
         self._last_ping_time: Optional[float] = None
+        self._consecutive_failures = 0
+        self._is_lost = False
+        self._ping_runner = ping_runner or subprocess.run
+
+    @property
+    def consecutive_failures(self) -> int:
+        """Current consecutive tray-host ping failure count."""
+        return self._consecutive_failures
+
+    @property
+    def is_lost(self) -> bool:
+        """Whether tray host is considered lost by failure threshold."""
+        return self._is_lost
     
     def ping(self) -> bool:
         """Check if the tray host is responsive.
-        
-        Currently always returns True as actual D-Bus ping would require
-        Qt/DBus integration. This is a placeholder for heartbeat checks.
-        
+
         Returns:
-            True (placeholder implementation)
+            True if tray-host D-Bus probe succeeds, False otherwise.
         """
-        # TODO: Implement actual D-Bus StatusNotifier ping
-        # For now, return True to indicate tray host is assumed responsive
-        self._last_ping_time = 0.0  # Placeholder
-        return True
+        self._last_ping_time = time.time()
+        command = [
+            "dbus-send",
+            "--session",
+            "--dest=org.freedesktop.DBus",
+            "--type=method_call",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus.ListNames",
+        ]
+
+        try:
+            result = self._ping_runner(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            if result.returncode == 0:
+                self._consecutive_failures = 0
+                self._is_lost = False
+                return True
+
+            self._record_failure(result.stderr or "dbus probe failed")
+            return False
+        except Exception as exc:  # pragma: no cover - defensive
+            self._record_failure(str(exc))
+            return False
+
+    def _record_failure(self, reason: str) -> None:
+        self._consecutive_failures += 1
+        logger.warning(
+            "Tray host ping failed (%d consecutive): %s",
+            self._consecutive_failures,
+            reason,
+        )
+
+        if self._consecutive_failures < 3:
+            return
+
+        if not self._is_lost:
+            payload = {
+                "event": "tray_host_lost",
+                "host": self._info.name,
+                "consecutive_failures": self._consecutive_failures,
+            }
+            print(json.dumps(payload, sort_keys=True))
+        self._is_lost = True
     
     def get_info(self) -> TrayHostInfo:
         """Get information about the tray host.

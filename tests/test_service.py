@@ -1,5 +1,7 @@
 """Tests for service module."""
 
+import subprocess
+
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -152,3 +154,69 @@ def test_concrete_tray_host_ping_returns_bool():
     host = ConcreteTrayHost(info)
     result = host.ping()
     assert isinstance(result, bool)
+
+
+def test_concrete_tray_host_marks_lost_after_three_ping_failures():
+    from aws_sso_autologin.service import ConcreteTrayHost, TrayHostInfo, TrayHostType
+
+    info = TrayHostInfo(
+        host_type=TrayHostType.GNOME,
+        name="Test",
+        supports_status_notifier=True,
+    )
+
+    failing_runner = MagicMock(
+        return_value=MagicMock(returncode=1, stdout="", stderr="no host")
+    )
+    host = ConcreteTrayHost(info, ping_runner=failing_runner)
+
+    assert host.ping() is False
+    assert host.ping() is False
+    assert host.ping() is False
+    assert host.consecutive_failures == 3
+    assert host.is_lost is True
+
+
+def test_concrete_tray_host_success_resets_failure_count():
+    from aws_sso_autologin.service import ConcreteTrayHost, TrayHostInfo, TrayHostType
+
+    info = TrayHostInfo(
+        host_type=TrayHostType.GNOME,
+        name="Test",
+        supports_status_notifier=True,
+    )
+
+    runner = MagicMock(
+        side_effect=[
+            MagicMock(returncode=1, stdout="", stderr="timeout"),
+            MagicMock(returncode=0, stdout="", stderr=""),
+        ]
+    )
+    host = ConcreteTrayHost(info, ping_runner=runner)
+
+    assert host.ping() is False
+    assert host.consecutive_failures == 1
+
+    assert host.ping() is True
+    assert host.consecutive_failures == 0
+    assert host.is_lost is False
+
+
+def test_concrete_tray_host_ping_invokes_dbus_status_notifier_probe():
+    from aws_sso_autologin.service import ConcreteTrayHost, TrayHostInfo, TrayHostType
+
+    info = TrayHostInfo(
+        host_type=TrayHostType.GNOME,
+        name="Test",
+        supports_status_notifier=True,
+    )
+
+    runner = MagicMock(return_value=MagicMock(returncode=0, stdout="", stderr=""))
+    host = ConcreteTrayHost(info, ping_runner=runner)
+    host.ping()
+
+    args, kwargs = runner.call_args
+    command = args[0]
+    assert command[0] == "dbus-send"
+    assert "org.freedesktop.DBus.ListNames" in command
+    assert kwargs["timeout"] == 2

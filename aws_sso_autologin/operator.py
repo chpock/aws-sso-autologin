@@ -8,18 +8,17 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
+from aws_sso_autologin.constants import (
+    CHECK_INTERVAL_SECONDS,
+    HEARTBEAT_TIMEOUT_SECONDS,
+    LOGIN_LOCK_SECONDS,
+    RENEWAL_THRESHOLD_SECONDS,
+)
 from aws_sso_autologin.checker import SessionChecker
 from aws_sso_autologin.cli import CLIExecutor
-from aws_sso_autologin.models import ProfileConfig, RenewalStatus
+from aws_sso_autologin.models import ProfileConfig, RenewalStatus, SessionFailureType
 
 logger = logging.getLogger(__name__)
-
-# Constants from product spec
-CHECK_INTERVAL_SECONDS = 30
-HEARTBEAT_TIMEOUT_SECONDS = 300  # 5 minutes
-RENEWAL_THRESHOLD_SECONDS = 1800  # 30 minutes (50% of 1 hour)
-LOGIN_LOCK_SECONDS = 480  # 8 minutes
-
 
 class LoginStatus(Enum):
     """Status of a login operation."""
@@ -41,7 +40,7 @@ class LoginResult:
 
 
 class LoginOperator:
-    """Manages serial login queue with 8-minute lock per profile."""
+    """Manages serial login queue with 5-minute lock per profile."""
 
     def __init__(self, cli_executor: Optional[CLIExecutor] = None) -> None:
         """Initialize the login operator.
@@ -225,7 +224,7 @@ class LoginOperator:
 
 
 class SessionOperator:
-    """Tracks sessions and triggers renewals at 50% threshold."""
+    """Tracks sessions and queues renewal only on explicit expiry/invalidity."""
 
     def __init__(
         self,
@@ -253,22 +252,35 @@ class SessionOperator:
         info = self._checker.get_session_info(profile)
 
         if not info.is_active:
-            logger.info(f"Session for {profile.name} is not active, triggering login")
-            self._login_operator.enqueue(profile.name)
-            return RenewalStatus.TRIGGERED
+            if info.failure_type == SessionFailureType.EXPIRED_OR_INVALID:
+                logger.info(
+                    "Session for %s classified as expired/invalid, triggering login",
+                    profile.name,
+                )
+                self._login_operator.enqueue(profile.name)
+                return RenewalStatus.TRIGGERED
+
+            logger.warning(
+                "Session for %s inactive without explicit expired/invalid classification; "
+                "skipping auto-login (failure_type=%s)",
+                profile.name,
+                info.failure_type.value,
+            )
+            return RenewalStatus.UNKNOWN
 
         if info.seconds_remaining is None:
             logger.warning(f"Cannot determine remaining time for {profile.name}")
             return RenewalStatus.UNKNOWN
 
         if info.seconds_remaining <= RENEWAL_THRESHOLD_SECONDS:
-            logger.info(
-                f"Session for {profile.name} at "
-                f"{info.seconds_remaining}s remaining (threshold: "
-                f"{RENEWAL_THRESHOLD_SECONDS}s), triggering renewal"
+            logger.debug(
+                "Session for %s below threshold (%ss <= %ss); waiting for explicit "
+                "expired/invalid classifier hit before auto-login",
+                profile.name,
+                info.seconds_remaining,
+                RENEWAL_THRESHOLD_SECONDS,
             )
-            self._login_operator.enqueue(profile.name)
-            return RenewalStatus.TRIGGERED
+            return RenewalStatus.NOT_NEEDED
 
         return RenewalStatus.NOT_NEEDED
 
@@ -286,11 +298,11 @@ class SessionOperator:
         needs_renewal = []
         for profile in profiles:
             info = self._checker.get_session_info(profile)
-            if not info.is_active:
+            if (
+                not info.is_active
+                and info.failure_type == SessionFailureType.EXPIRED_OR_INVALID
+            ):
                 needs_renewal.append(profile.name)
-            elif info.seconds_remaining is not None:
-                if info.seconds_remaining <= RENEWAL_THRESHOLD_SECONDS:
-                    needs_renewal.append(profile.name)
         return needs_renewal
 
 
