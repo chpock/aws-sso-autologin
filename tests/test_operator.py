@@ -99,6 +99,21 @@ def test_health_operator_set_status_callback():
     assert operator._on_status_change == callback
 
 
+def test_health_operator_callback_exception_does_not_break_check_loop():
+    mock_checker = MagicMock()
+    mock_checker.get_session_info.return_value = SessionInfo(
+        profile_name="profile1",
+        is_active=True,
+        seconds_remaining=3600,
+    )
+
+    operator = HealthOperator(checker=mock_checker)
+    operator.register_profiles([ProfileConfig(name="profile1")])
+    operator.set_status_callback(MagicMock(side_effect=RuntimeError("ui callback failed")))
+
+    operator._check_all_profiles()
+
+
 def test_health_operator_start_stop():
     """Test starting and stopping the operator."""
     operator = HealthOperator()

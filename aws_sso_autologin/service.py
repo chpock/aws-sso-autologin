@@ -289,6 +289,15 @@ class ConcreteTrayHost(TrayHost):
                 timeout=2,
             )
             if result.returncode == 0:
+                if self._consecutive_failures > 0:
+                    logger.info(
+                        "Tray host heartbeat recovered",
+                        extra={
+                            "event": "tray_host_heartbeat_recovered",
+                            "host": self._info.name,
+                            "consecutive_failures": self._consecutive_failures,
+                        },
+                    )
                 self._consecutive_failures = 0
                 self._is_lost = False
                 return True
@@ -305,6 +314,12 @@ class ConcreteTrayHost(TrayHost):
             "Tray host ping failed (%d consecutive): %s",
             self._consecutive_failures,
             reason,
+            extra={
+                "event": "tray_host_ping_failure",
+                "host": self._info.name,
+                "consecutive_failures": self._consecutive_failures,
+                "reason": reason,
+            },
         )
 
         if self._consecutive_failures < 3:

@@ -203,6 +203,29 @@ def test_on_status_change_check_error_sets_error_state():
     assert status.short_reason == "subprocess failure"
 
 
+def test_on_status_change_other_failure_uses_connectivity_copy():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.models import RenewalStatus, SessionFailureType, SessionInfo
+    from aws_sso_autologin.tray import ProfileState
+
+    app = AutologinApp()
+    app._tray = Mock()
+
+    info = SessionInfo(
+        profile_name="test-profile",
+        is_active=False,
+        seconds_remaining=0,
+        failure_type=SessionFailureType.OTHER,
+        error_message="Could not connect to endpoint URL",
+    )
+
+    app._on_status_change("test-profile", RenewalStatus.UNKNOWN, info)
+
+    status = app._tray.update_profile.call_args.args[0]
+    assert status.state == ProfileState.WARNING
+    assert status.short_reason == "Connectivity issue"
+
+
 def test_autologin_app_load_profiles_empty():
     from aws_sso_autologin.__main__ import AutologinApp
     app = AutologinApp()

@@ -398,25 +398,37 @@ class HealthOperator:
             try:
                 info = self._checker.get_session_info(profile)
                 status = self._session_operator.check_and_renew_with_info(profile, info)
-
-                if self._on_status_change:
-                    self._on_status_change(profile.name, status, info)
+                self._emit_status(profile.name, status, info)
 
             except Exception as e:
                 logger.error(f"Error checking profile {profile.name}: {e}")
-                if self._on_status_change:
-                    fallback_info = SessionInfo(
-                        profile_name=profile.name,
-                        is_active=False,
-                        seconds_remaining=None,
-                        failure_type=SessionFailureType.CHECK_ERROR,
-                        error_message=str(e),
-                    )
-                    self._on_status_change(
-                        profile.name,
-                        RenewalStatus.UNKNOWN,
-                        fallback_info,
-                    )
+                fallback_info = SessionInfo(
+                    profile_name=profile.name,
+                    is_active=False,
+                    seconds_remaining=None,
+                    failure_type=SessionFailureType.CHECK_ERROR,
+                    error_message=str(e),
+                )
+                self._emit_status(profile.name, RenewalStatus.UNKNOWN, fallback_info)
+
+    def _emit_status(
+        self,
+        profile_name: str,
+        status: RenewalStatus,
+        info: SessionInfo,
+    ) -> None:
+        """Emit a status update without destabilizing the monitor loop."""
+        if not self._on_status_change:
+            return
+
+        try:
+            self._on_status_change(profile_name, status, info)
+        except Exception as callback_exc:
+            logger.error(
+                "Status callback failed for %s: %s",
+                profile_name,
+                callback_exc,
+            )
 
     def _update_heartbeat(self) -> None:
         """Update the heartbeat timestamp."""

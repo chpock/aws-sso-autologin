@@ -292,11 +292,10 @@ class AutologinApp:
             )
 
         if session_info.failure_type == SessionFailureType.OTHER:
-            reason = session_info.error_message or "Connectivity issue"
             return ProfileStatus(
                 profile_name=profile_name,
                 state=ProfileState.WARNING,
-                short_reason=reason,
+                short_reason="Connectivity issue",
                 diagnostics_summary="Connectivity warning",
                 diagnostics_details=self._build_diagnostics_details(session_info),
             )
