@@ -458,12 +458,12 @@ class StatusTray:
         self._menu.addSeparator()
 
         profile_names = sorted(self._profiles.keys(), key=str.lower)
-        if len(profile_names) > MAX_PROFILES_IN_ROOT_MENU:
-            self._add_overflow_submenus(profile_names)
-        else:
-            self._add_profile_rows(self._menu, profile_names)
-
-        self._menu.addSeparator()
+        if profile_names:
+            if len(profile_names) > MAX_PROFILES_IN_ROOT_MENU:
+                self._add_overflow_submenus(profile_names)
+            else:
+                self._add_profile_rows(self._menu, profile_names)
+            self._menu.addSeparator()
 
         quit_action = QAction("Quit", self._menu)
         quit_action.triggered.connect(self._on_quit_triggered)

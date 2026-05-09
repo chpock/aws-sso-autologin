@@ -317,3 +317,25 @@ def test_status_tray_default_diagnostics_opens_dialog(qapp):
 
     tray._details_dialog.close()
     tray.close()
+
+
+def test_status_tray_no_profiles_single_separator_before_quit(qapp):
+    """When no profiles exist, only one separator between first row and Quit."""
+    tray = StatusTray()
+    # Ensure no profiles
+    assert len(tray._profiles) == 0
+
+    actions = tray.tray_icon.contextMenu().actions()
+
+    # Count separators
+    separator_count = sum(1 for a in actions if a.isSeparator())
+
+    # Should have only 1 separator (between first row and Quit)
+    assert separator_count == 1
+
+    # Verify structure: first row, separator, Quit
+    non_separator_actions = [a for a in actions if not a.isSeparator()]
+    assert non_separator_actions[0].text() == "Disable auto-login"
+    assert non_separator_actions[-1].text() == "Quit"
+
+    tray.close()
