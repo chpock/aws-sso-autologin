@@ -89,7 +89,8 @@ def test_check_tray_host_available_logs_diagnostics_for_unknown_env():
 
     assert result is False
     kwargs = mock_warning.call_args.kwargs
-    assert kwargs["extra"]["event"] == "tray_host_probe_completed"
+    assert kwargs["extra"]["event"] == "tray_host_unavailable_unknown"
+    assert kwargs["extra"]["normalized_event"] == "tray_host_probe_completed"
     assert kwargs["extra"]["status"] == "failed"
     assert kwargs["extra"]["reason"] == "unknown_environment"
 

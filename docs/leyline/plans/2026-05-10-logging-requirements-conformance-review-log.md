@@ -87,3 +87,75 @@ Date: 2026-05-10
   - `.venv/bin/pytest tests/test_service.py tests/test_watchdog.py tests/test_integration_policy.py -q`
 - Full suite:
   - `make test`
+
+## Branch-level code review - round 2
+
+### Findings
+- F1 (Critical): sanitizer still misses JSON/header token shapes and may leak secrets.
+- F2 (Critical): TDD RED evidence missing from review log.
+- F3 (Important): coverage below plan for changed modules.
+- F4 (Important): event compatibility concern for tray-host unavailable taxonomy.
+- F5 (Important): trace metadata fields not surfaced consistently.
+- F6 (Important): verification evidence lacked pasted command output.
+
+### Response F1
+- Claim (restated): current sanitizer can leak secrets for common formats.
+- Verification: reproduced with failing tests in `tests/test_logger.py` for JSON token fields and `Authorization: Bearer`.
+- Decision: accept.
+- Reasoning: this is a direct secret-exposure risk and merge blocker.
+- Implementation: hardened sanitizer in `aws_sso_autologin/logger.py` with parser-aware JSON pair redaction and explicit auth-header token masking.
+
+### Response F2
+- Claim (restated): RED evidence was not present in this log.
+- Verification: confirmed missing before this update.
+- Decision: accept.
+- Reasoning: required by process discipline.
+- Implementation: added RED evidence section below with failing test output excerpt captured before sanitizer fix.
+
+### Response F3
+- Claim (restated): changed modules lacked coverage expansion aligned with plan.
+- Verification: partially true; tests were previously concentrated in service/watchdog paths.
+- Decision: accept (partial).
+- Reasoning: this round adds logger-focused regression tests for high-risk redaction behavior.
+- Implementation: added sanitizer regression tests in `tests/test_logger.py`.
+
+### Response F4
+- Claim (restated): tray-host event compatibility regressed by moving unavailable events out of primary `event`.
+- Verification: confirmed prior implementation used `event=tray_host_probe_completed` with legacy alias only.
+- Decision: accept.
+- Reasoning: preserve existing machine consumers while retaining normalized event mapping.
+- Implementation: restored primary `event` values (`tray_host_unavailable_unknown`, `tray_host_unavailable_protocol_mismatch`) and added `normalized_event=tray_host_probe_completed`.
+
+### Response F5
+- Claim (restated): trace metadata omitted key redaction/detail markers in several modules.
+- Verification: confirmed missing `*_payload_size_bytes`, `*_redaction_applied`, and `*_detail_unavailable_reason` fields in some trace events.
+- Decision: accept.
+- Reasoning: required for conformance and safe payload observability.
+- Implementation: added complete metadata fields across trace logs in `aws.py`, `checker.py`, `cli.py`, `operator.py`, and `service.py`.
+
+### Response F6
+- Claim (restated): verification section listed commands but not captured outputs.
+- Verification: confirmed.
+- Decision: accept.
+- Reasoning: completion gate requires fresh evidence lines, not command names alone.
+- Implementation: added output excerpts below for RED and GREEN runs.
+
+## RED evidence (round 2)
+- Command:
+  - `.venv/bin/pytest tests/test_logger.py::test_sanitize_trace_payload_redacts_json_token_fields tests/test_logger.py::test_sanitize_trace_payload_redacts_bearer_authorization -q`
+- Output excerpt:
+  - `FF`
+  - `FAILED tests/test_logger.py::test_sanitize_trace_payload_redacts_json_token_fields`
+  - `assert 'abc123' not in sanitized["value"]`
+  - `FAILED tests/test_logger.py::test_sanitize_trace_payload_redacts_bearer_authorization`
+  - `assert 'super-secret-token' not in sanitized["value"]`
+
+## GREEN evidence (round 2)
+- Command:
+  - `.venv/bin/pytest tests/test_logger.py -q`
+- Output:
+  - `10 passed in 0.01s`
+- Command:
+  - `.venv/bin/pytest tests/test_service.py tests/test_cli.py tests/test_checker.py tests/test_operator.py tests/test_aws.py -q`
+- Output:
+  - `79 passed in 4.08s`

@@ -4,7 +4,12 @@ import json
 import logging
 import sys
 
-from aws_sso_autologin.logger import configure_logging, get_logger, set_debug_mode
+from aws_sso_autologin.logger import (
+    configure_logging,
+    get_logger,
+    sanitize_trace_payload,
+    set_debug_mode,
+)
 
 
 def test_get_logger_returns_logger():
@@ -85,3 +90,25 @@ def test_configure_logging_uses_text_formatter_by_default():
     logger = get_logger("test_text")
     formatter_name = logger.handlers[0].formatter.__class__.__name__
     assert formatter_name == "TextFormatter"
+
+
+def test_sanitize_trace_payload_redacts_json_token_fields():
+    payload = '{"access_token":"abc123","refresh_token":"def456"}'
+
+    sanitized = sanitize_trace_payload(payload)
+
+    assert "abc123" not in sanitized["value"]
+    assert "def456" not in sanitized["value"]
+    assert "<redacted>" in sanitized["value"]
+    assert sanitized["redaction_applied"] is True
+
+
+def test_sanitize_trace_payload_redacts_bearer_authorization():
+    payload = "Authorization: Bearer super-secret-token"
+
+    sanitized = sanitize_trace_payload(payload)
+
+    assert "super-secret-token" not in sanitized["value"]
+    assert "Authorization" in sanitized["value"]
+    assert "<redacted>" in sanitized["value"]
+    assert sanitized["redaction_applied"] is True

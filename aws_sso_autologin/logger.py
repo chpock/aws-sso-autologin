@@ -12,10 +12,14 @@ _created_loggers: Set[logging.Logger] = set()
 TRACE_LEVEL_NUM = 5
 logging.addLevelName(TRACE_LEVEL_NUM, "TRACE")
 
-_SENSITIVE_PATTERNS = (
-    re.compile(r"(?i)(access[_-]?token|refresh[_-]?token|secret|password|authorization)\s*[:=]\s*[^\s,;]+"),
-    re.compile(r"(?i)(aws_access_key_id|aws_secret_access_key)\s*[:=]\s*[^\s,;]+"),
+_JSON_SECRET_PAIR = re.compile(
+    r'(?i)("(?:access[_-]?token|refresh[_-]?token|secret|password|authorization|aws_access_key_id|aws_secret_access_key)"\s*:\s*)"[^"]*"'
 )
+_KV_SECRET_PAIR = re.compile(
+    r"(?i)\b(access[_-]?token|refresh[_-]?token|secret|password|authorization|aws_access_key_id|aws_secret_access_key)\b\s*[:=]\s*([^\s,;]+)"
+)
+_AUTH_BEARER = re.compile(r"(?i)(authorization\s*:\s*bearer\s+)([^\s,;]+)")
+_AUTH_BASIC = re.compile(r"(?i)(authorization\s*:\s*basic\s+)([^\s,;]+)")
 
 
 def sanitize_trace_payload(value: Any, max_len: int = 2000) -> dict[str, Any]:
@@ -23,11 +27,25 @@ def sanitize_trace_payload(value: Any, max_len: int = 2000) -> dict[str, Any]:
     text = str(value or "")
     redacted = text
     redacted_applied = False
-    for pattern in _SENSITIVE_PATTERNS:
-        updated = pattern.sub(lambda m: m.group(0).split(":", 1)[0].split("=", 1)[0] + "=<redacted>", redacted)
-        if updated != redacted:
-            redacted_applied = True
-        redacted = updated
+    updated = _JSON_SECRET_PAIR.sub(r'\1"<redacted>"', redacted)
+    if updated != redacted:
+        redacted_applied = True
+    redacted = updated
+
+    updated = _AUTH_BEARER.sub(r"\1<redacted>", redacted)
+    if updated != redacted:
+        redacted_applied = True
+    redacted = updated
+
+    updated = _AUTH_BASIC.sub(r"\1<redacted>", redacted)
+    if updated != redacted:
+        redacted_applied = True
+    redacted = updated
+
+    updated = _KV_SECRET_PAIR.sub(r"\1=<redacted>", redacted)
+    if updated != redacted:
+        redacted_applied = True
+    redacted = updated
 
     payload_size = len(redacted)
     truncated = payload_size > max_len
@@ -37,9 +55,8 @@ def sanitize_trace_payload(value: Any, max_len: int = 2000) -> dict[str, Any]:
         "value": safe_text,
         "payload_size_bytes": payload_size,
         "payload_truncated": truncated,
+        "redaction_applied": redacted_applied,
     }
-    if redacted_applied:
-        result["redaction_applied"] = True
     if not safe_text:
         result["detail_unavailable_reason"] = "empty_output"
     return result
