@@ -4,7 +4,10 @@ import os
 import signal
 import sys
 from datetime import datetime
-from typing import Optional, List, Any
+from typing import Optional, List, Any, NoReturn
+
+from aws_sso_autologin.mode_policy import ExecutionMode, get_execution_mode
+from aws_sso_autologin.watchdog import AutomationWatchdog, WatchdogTimeout
 
 import typer
 from click.exceptions import ClickException
@@ -699,6 +702,114 @@ class AutologinApp:
                 extra={"event": "shutdown_action", "action": "quit_qt_event_loop"},
             )
             self._app.quit()
+
+
+def run_with_mode(mode: ExecutionMode, check_only: bool = False) -> int:
+    """
+    Execute application logic based on determined mode.
+    
+    Args:
+        mode: Execution mode determined by policy layer
+        check_only: Whether --check-only flag was explicitly passed
+        
+    Returns:
+        Exit code (0=success, 1=check failure, 124=watchdog timeout)
+    """
+    if mode == ExecutionMode.CHECK_ONLY or check_only:
+        return run_check_only()
+    else:  # NORMAL mode
+        return run_normal()
+
+
+def run_check_only() -> int:
+    """
+    Run preflight checks without entering daemon loop.
+    
+    This is the safe mode for automation and tests.
+    """
+    import logging as _logging
+    _logging.basicConfig(level=_logging.INFO, format="%(message)s")
+    logger = _logging.getLogger(__name__)
+    
+    logger.info("event=check_only_start mode=check_only")
+    
+    try:
+        # Run preflight checks
+        tray_available = check_tray_host_available()
+        
+        if tray_available:
+            logger.info("event=check_only_completed mode=check_only status=passed")
+            print("Startup preflight passed. Tray host and AWS prerequisites are available.")
+            return 0
+        else:
+            logger.error("event=check_only_completed mode=check_only status=failed")
+            print("Startup preflight failed. See logs for details.", file=sys.stderr)
+            return 1
+            
+    except Exception as e:
+        logger.error(f"event=check_only_error error={e}")
+        return 1
+
+
+def run_normal() -> int:
+    """
+    Run in normal mode (daemon with event loop).
+    
+    This is the standard operation mode for interactive use.
+    """
+    import logging as _logging
+    _logging.basicConfig(level=_logging.INFO, format="%(message)s")
+    logger = _logging.getLogger(__name__)
+    
+    logger.info("event=normal_start mode=normal")
+    
+    try:
+        # Import and run the actual daemon application
+        from aws_sso_autologin.tray import run_tray_application
+        run_tray_application()
+        return 0
+    except Exception as e:
+        logger.error(f"event=normal_error error={e}")
+        return 1
+
+
+def main_entrypoint(check_only: bool = False) -> int:
+    """
+    Main entrypoint with policy enforcement and watchdog protection.
+    
+    Args:
+        check_only: Whether --check-only flag was passed
+        
+    Returns:
+        Exit code (0=success, 1=check failure, 124=watchdog timeout)
+    """
+    import logging as _logging
+    # Setup basic logging
+    _logging.basicConfig(
+        level=_logging.INFO,
+        format="%(message)s",
+    )
+    logger = _logging.getLogger(__name__)
+    
+    try:
+        # Determine mode (respects CLI flags and automation context)
+        mode = get_execution_mode(cli_check_only=check_only)
+        
+        # Run with watchdog protection in automation contexts
+        watchdog = AutomationWatchdog()
+        
+        with watchdog:
+            exit_code = run_with_mode(mode, check_only=check_only)
+            
+        return exit_code
+        
+    except WatchdogTimeout as e:
+        logger.error(str(e))
+        return 124
+        
+    except Exception as e:
+        logger.error(f"event=main_error error={e}")
+        return 1
 
 
 def main(args: Optional[List[str]] = None) -> int:
