@@ -153,8 +153,31 @@ def test_on_status_change_timeout_sets_warning_state():
     app._on_status_change("test-profile", RenewalStatus.UNKNOWN, info)
 
     status = app._tray.update_profile.call_args.args[0]
-    assert status.state == ProfileState.WARNING
+    assert status.state == ProfileState.ERROR
     assert status.short_reason == "Command timed out"
+
+
+def test_on_status_change_permission_denied_sets_error_state():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.models import RenewalStatus, SessionFailureType, SessionInfo
+    from aws_sso_autologin.tray import ProfileState
+
+    app = AutologinApp()
+    app._tray = Mock()
+
+    info = SessionInfo(
+        profile_name="test-profile",
+        is_active=False,
+        seconds_remaining=0,
+        failure_type=SessionFailureType.PERMISSION_DENIED,
+        error_message="Access denied",
+    )
+
+    app._on_status_change("test-profile", RenewalStatus.UNKNOWN, info)
+
+    status = app._tray.update_profile.call_args.args[0]
+    assert status.state == ProfileState.ERROR
+    assert status.diagnostics_summary == "Access denied"
 
 
 def test_on_status_change_check_error_sets_error_state():

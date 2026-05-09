@@ -271,10 +271,27 @@ class AutologinApp:
                 diagnostics_details=self._build_diagnostics_details(session_info),
             )
 
-        if session_info.failure_type in (
-            SessionFailureType.TIMEOUT,
-            SessionFailureType.OTHER,
-        ):
+        if session_info.failure_type == SessionFailureType.TIMEOUT:
+            reason = session_info.error_message or "Command timed out"
+            return ProfileStatus(
+                profile_name=profile_name,
+                state=ProfileState.ERROR,
+                short_reason=reason,
+                diagnostics_summary="Command timed out",
+                diagnostics_details=self._build_diagnostics_details(session_info),
+            )
+
+        if session_info.failure_type == SessionFailureType.PERMISSION_DENIED:
+            reason = session_info.error_message or "Access denied"
+            return ProfileStatus(
+                profile_name=profile_name,
+                state=ProfileState.ERROR,
+                short_reason=reason,
+                diagnostics_summary="Access denied",
+                diagnostics_details=self._build_diagnostics_details(session_info),
+            )
+
+        if session_info.failure_type == SessionFailureType.OTHER:
             reason = session_info.error_message or "Connectivity issue"
             return ProfileStatus(
                 profile_name=profile_name,
@@ -300,10 +317,11 @@ class AutologinApp:
         session_info: SessionInfo,
     ) -> None:
         """Handle profile status changes.
-        
+
         Args:
-            profile_name: Name of the profile that changed
-            is_healthy: True if the profile is healthy, False otherwise
+            profile_name: Name of the profile that changed.
+            renewal_status: Renewal action outcome from SessionOperator.
+            session_info: Classified session check details for taxonomy mapping.
         """
         if self._tray:
             status = self._status_from_session(

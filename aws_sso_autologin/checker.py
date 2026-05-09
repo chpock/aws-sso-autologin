@@ -51,6 +51,10 @@ class SessionChecker:
             failure_type = SessionFailureType.OTHER
             if self._is_expired_or_invalid_error(error_text):
                 failure_type = SessionFailureType.EXPIRED_OR_INVALID
+            elif self._is_permission_denied_error(error_text):
+                failure_type = SessionFailureType.PERMISSION_DENIED
+            elif "timed out" in error_text.lower():
+                failure_type = SessionFailureType.TIMEOUT
 
             return SessionInfo(
                 profile_name=profile.name,
@@ -139,5 +143,20 @@ class SessionChecker:
             "invalid grant",
             "invalid_request",
             "invalid request",
+        )
+        return any(pattern in lowered for pattern in explicit_patterns)
+
+    def _is_permission_denied_error(self, error_message: str) -> bool:
+        """Return True when output indicates profile permission denial."""
+        if not error_message:
+            return False
+
+        lowered = error_message.lower()
+        explicit_patterns = (
+            "access denied",
+            "accessdenied",
+            "not authorized",
+            "unauthorized",
+            "forbidden",
         )
         return any(pattern in lowered for pattern in explicit_patterns)

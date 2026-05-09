@@ -51,3 +51,22 @@ def test_logger_uses_structured_json_formatter():
     assert payload["level"] == "INFO"
     assert payload["message"] == "structured message"
     assert "timestamp" in payload
+
+
+def test_logger_includes_extra_fields_in_json_payload():
+    logger = get_logger("test_extra")
+    formatter = logger.handlers[0].formatter
+    record = logger.makeRecord(
+        name=logger.name,
+        level=logging.INFO,
+        fn="test.py",
+        lno=1,
+        msg="extra fields",
+        args=(),
+        exc_info=None,
+        extra={"event": "tray_host_lost", "host": "GNOME"},
+    )
+
+    payload = json.loads(formatter.format(record))
+    assert payload["event"] == "tray_host_lost"
+    assert payload["host"] == "GNOME"

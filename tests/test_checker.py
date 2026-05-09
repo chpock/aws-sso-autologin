@@ -51,3 +51,19 @@ def test_checker_marks_timeout_failure_type():
 
     assert info.is_active is False
     assert info.failure_type == SessionFailureType.TIMEOUT
+
+
+def test_checker_marks_permission_denied_failure_type():
+    checker = SessionChecker(cli_path="aws")
+    profile = ProfileConfig(name="team-sec")
+
+    with patch("aws_sso_autologin.checker._run_subprocess_with_escalation") as mock_run:
+        mock_run.return_value = (
+            254,
+            "",
+            "AccessDenied: User is not authorized to perform sts:GetCallerIdentity",
+        )
+        info = checker.get_session_info(profile)
+
+    assert info.is_active is False
+    assert info.failure_type == SessionFailureType.PERMISSION_DENIED

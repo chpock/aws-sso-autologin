@@ -1,6 +1,5 @@
 """Service module for tray host abstraction and environment detection."""
 
-import json
 import os
 import subprocess
 import time
@@ -312,12 +311,14 @@ class ConcreteTrayHost(TrayHost):
             return
 
         if not self._is_lost:
-            payload = {
-                "event": "tray_host_lost",
-                "host": self._info.name,
-                "consecutive_failures": self._consecutive_failures,
-            }
-            print(json.dumps(payload, sort_keys=True))
+            logger.error(
+                "Tray host lost",
+                extra={
+                    "event": "tray_host_lost",
+                    "host": self._info.name,
+                    "consecutive_failures": self._consecutive_failures,
+                },
+            )
         self._is_lost = True
     
     def get_info(self) -> TrayHostInfo:

@@ -18,6 +18,7 @@ class SessionFailureType(Enum):
 
     NONE = "none"
     EXPIRED_OR_INVALID = "expired_or_invalid"
+    PERMISSION_DENIED = "permission_denied"
     OTHER = "other"
     TIMEOUT = "timeout"
     CHECK_ERROR = "check_error"

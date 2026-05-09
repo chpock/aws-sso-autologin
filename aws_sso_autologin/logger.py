@@ -12,6 +12,30 @@ _created_loggers: Set[logging.Logger] = set()
 class StructuredFormatter(logging.Formatter):
     """JSON formatter for structured stdout logs."""
 
+    _BASE_FIELDS = {
+        "name",
+        "msg",
+        "args",
+        "levelname",
+        "levelno",
+        "pathname",
+        "filename",
+        "module",
+        "exc_info",
+        "exc_text",
+        "stack_info",
+        "lineno",
+        "funcName",
+        "created",
+        "msecs",
+        "relativeCreated",
+        "thread",
+        "threadName",
+        "processName",
+        "process",
+        "message",
+    }
+
     def format(self, record: logging.LogRecord) -> str:
         payload = {
             "timestamp": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
@@ -22,6 +46,11 @@ class StructuredFormatter(logging.Formatter):
 
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
+
+        for key, value in record.__dict__.items():
+            if key in self._BASE_FIELDS or key.startswith("_"):
+                continue
+            payload[key] = value
 
         return json.dumps(payload, sort_keys=True)
 
