@@ -513,3 +513,28 @@ def test_error_details_dialog_has_three_regions(qapp):
     assert dialog._text_edit is not None
     assert dialog._text_edit.isReadOnly() is True
     dialog.close()
+
+
+def test_error_details_dialog_copy_failure_shows_helper(qapp, monkeypatch):
+    dialog = ErrorDetailsDialog.from_text("summary", "Command: sts_check")
+
+    class RaisingClipboard:
+        def setText(self, _text: str) -> None:
+            raise RuntimeError("clipboard unavailable")
+
+    monkeypatch.setattr(dialog, "_clipboard", RaisingClipboard())
+    dialog._on_copy_all_details()
+
+    assert dialog._copy_helper_label.text() == "Copy failed. Select details text and copy manually."
+    assert dialog._copy_helper_state in {"fail", "escalated"}
+    dialog.close()
+
+
+def test_error_details_dialog_copy_success_clears_helper(qapp):
+    dialog = ErrorDetailsDialog.from_text("summary", "Command: sts_check")
+    dialog._set_copy_helper_state("fail")
+    dialog._on_copy_all_details()
+
+    assert dialog._copy_helper_state == "none"
+    assert dialog._copy_helper_label.text() == ""
+    dialog.close()

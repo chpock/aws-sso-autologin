@@ -8,6 +8,7 @@ from typing import Callable, Optional
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QMenu,
     QPlainTextEdit,
+    QPushButton,
     QScrollArea,
     QSystemTrayIcon,
     QTableWidget,
@@ -267,6 +269,12 @@ class ErrorDetailsDialog(QDialog):
         # Set initial focus to details textarea per UX spec accessibility contract
         self._text_edit.setFocus()
 
+        # Copy helper state machine attributes
+        self._copy_failure_streak = 0
+        self._copy_helper_state = "none"
+        self._copy_helper_label = QLabel("")
+        self._clipboard = QApplication.clipboard()
+
     def _build_status_header(self) -> QFrame:
         """Build status header region based on execution state."""
         frame = QFrame(self)
@@ -314,6 +322,41 @@ class ErrorDetailsDialog(QDialog):
             value = sections[section]
             lines.append(f"{section}: {value}")
         return "\n\n".join(lines)
+
+    def _on_copy_all_details(self) -> None:
+        """Copy all details to clipboard with helper state machine."""
+        payload = self._text_edit.toPlainText()
+        try:
+            self._clipboard.setText(payload)
+        except Exception:
+            self._copy_failure_streak += 1
+            if self._copy_failure_streak >= 3:
+                self._set_copy_helper_state("escalated")
+            else:
+                self._set_copy_helper_state("fail")
+            logger.warning("event=diagnostics_copy_failed")
+            return
+
+        self._copy_failure_streak = 0
+        self._set_copy_helper_state("success")
+        self._set_copy_helper_state("none")
+        logger.info("event=diagnostics_copy_succeeded")
+
+    def _set_copy_helper_state(self, state: str) -> None:
+        """Set the copy helper state and update the label text."""
+        self._copy_helper_state = state
+        if state == "fail":
+            self._copy_helper_label.setText(
+                "Copy failed. Select details text and copy manually."
+            )
+        elif state == "escalated":
+            self._copy_helper_label.setText(
+                "Copy is still failing. Select details text and copy manually."
+            )
+        elif state == "success":
+            self._copy_helper_label.setText("Copy succeeded.")
+        else:
+            self._copy_helper_label.setText("")
 
     def _on_close(self) -> None:
         """Handle close button - only close the dialog, not the application."""
