@@ -261,6 +261,14 @@ class ErrorDetailsDialog(QDialog):
         self._text_edit = QPlainTextEdit()
         self._text_edit.setReadOnly(True)
         self._text_edit.setPlainText(self._format_sections(sections))
+        self._text_edit.setStyleSheet("""
+            QPlainTextEdit {
+                border: 1px solid #aaaaaa;
+                border-radius: 3px;
+                background-color: #f5f5f5;
+                padding: 4px;
+            }
+        """)
         layout.addWidget(self._text_edit, 1)
 
         # Copy helper label (between textarea and buttons)
