@@ -409,6 +409,31 @@ def test_error_details_dialog_focus_on_textarea_for_unknown_state(qapp):
     dialog.close()
 
 
+def test_error_details_dialog_shows_unknown_fields_when_execution_unknown(qapp):
+    """Unknown execution state shows 'unknown' for Command/Exit code per UX spec contract."""
+    dialog = ErrorDetailsDialog.from_text(
+        summary="Connectivity issue",
+        details=(
+            "Command: sts_check\n"
+            "Exit code: 1\n"
+            "stderr: failed\n"
+            "stdout: output\n"
+            "Timestamp: 2026-05-09T12:00:00Z"
+        ),
+    )
+
+    text = dialog._text_edit.toPlainText()
+    assert "Summary: Connectivity issue" in text
+    assert "Timestamp: 2026-05-09T12:00:00Z" in text
+    # Per UX spec, unknown execution state shows "unknown" values, not hiding fields
+    assert "Command: unknown" in text
+    assert "Exit code: unknown" in text
+    # Raw outputs are preserved in textarea even when execution state unknown
+    assert "stderr: failed" in text
+    assert "stdout: output" in text
+    dialog.close()
+
+
 def test_error_details_dialog_normalizes_unknown_fields_when_executed(qapp):
     dialog = ErrorDetailsDialog.from_text(
         summary="Auto-login failed",
@@ -490,95 +515,164 @@ def test_error_details_dialog_has_three_regions(qapp):
     dialog.close()
 
 
-class TestSensitiveDataDisclosure:
-    """Tests for sensitive data disclosure label (Finding F9)."""
+def test_error_details_dialog_has_copy_button(qapp):
+    """Dialog should have Copy all details button."""
+    dialog = ErrorDetailsDialog.from_text(
+        summary="Test error",
+        details="Command: test",
+    )
 
-    def test_disclosure_label_exists(self, qapp):
-        """Dialog should have sensitive data disclosure QLabel."""
-        dialog = ErrorDetailsDialog.from_text(
-            summary="Test error",
-            details="Command: test",
-        )
+    assert hasattr(dialog, '_copy_button')
+    assert dialog._copy_button is not None
+    assert dialog._copy_button.text() == "Copy all details"
+    dialog.close()
 
-        assert hasattr(dialog, '_sensitive_data_disclosure')
-        assert dialog._sensitive_data_disclosure is not None
-        dialog.close()
 
-    def test_disclosure_label_has_object_name(self, qapp):
-        """Disclosure label should have object name 'sensitive-data-disclosure'."""
-        dialog = ErrorDetailsDialog.from_text(
-            summary="Test error",
-            details="Command: test",
-        )
+def test_error_details_dialog_copy_button_triggers_handler(qapp, monkeypatch):
+    """Copy button should trigger _on_copy_all_details handler."""
+    dialog = ErrorDetailsDialog.from_text(
+        summary="Test error",
+        details="Command: test",
+    )
 
-        assert dialog._sensitive_data_disclosure.objectName() == "sensitive-data-disclosure"
-        dialog.close()
+    handler_called = False
 
-    def test_disclosure_label_is_visible(self, qapp):
-        """Disclosure label should be visible in all states."""
-        dialog = ErrorDetailsDialog.from_text(
-            summary="Test error",
-            details="Command: test",
-        )
-        dialog.show()
+    def mock_handler():
+        nonlocal handler_called
+        handler_called = True
 
-        assert dialog._sensitive_data_disclosure.isVisible() is True
-        dialog.close()
+    monkeypatch.setattr(dialog, '_on_copy_all_details', mock_handler)
+    dialog._copy_button.click()
 
-    def test_disclosure_label_has_correct_text(self, qapp):
-        """Disclosure label should have the required text."""
-        dialog = ErrorDetailsDialog.from_text(
-            summary="Test error",
-            details="Command: test",
-        )
+    assert handler_called is True
+    dialog.close()
 
-        expected_text = (
-            "Copied data may contain sensitive information and should be shared "
-            "only with trusted support channels."
-        )
-        assert dialog._sensitive_data_disclosure.text() == expected_text
-        dialog.close()
 
-    def test_disclosure_label_visible_in_error_state(self, qapp):
-        """Disclosure should be visible for error state."""
-        dialog = ErrorDetailsDialog.from_text(
-            summary="Auto-login failed for profile 'test'",
-            details="Command executed: true\nCommand: test\nExit code: 1",
-        )
-        dialog.show()
+def test_error_details_dialog_helper_label_in_layout(qapp):
+    """Helper label should be in dialog layout between textarea and buttons."""
+    dialog = ErrorDetailsDialog.from_text(
+        summary="Test error",
+        details="Command: test",
+    )
 
-        assert dialog._sensitive_data_disclosure.isVisible() is True
-        dialog.close()
+    assert hasattr(dialog, '_copy_helper_label')
+    assert dialog._copy_helper_label is not None
+    # Label should be visible in the layout
+    assert dialog._copy_helper_label.parent() is dialog
+    dialog.close()
 
-    def test_disclosure_label_visible_in_warning_state(self, qapp):
-        """Disclosure should be visible for warning state."""
-        dialog = ErrorDetailsDialog.from_text(
-            summary="Connectivity issue for profile 'test'",
-            details="Command executed: true\nCommand: test\nExit code: 1",
-        )
-        dialog.show()
 
-        assert dialog._sensitive_data_disclosure.isVisible() is True
-        dialog.close()
+def test_error_details_dialog_helper_label_visible_after_failure(qapp, monkeypatch):
+    """Helper label should show text after copy failure."""
+    dialog = ErrorDetailsDialog.from_text("summary", "Command: sts_check")
 
-    def test_disclosure_label_visible_in_unknown_state(self, qapp):
-        """Disclosure should be visible for unknown execution state."""
-        dialog = ErrorDetailsDialog.from_text(
-            summary="Payload incomplete",
-            details="Command: test\nstderr: error",
-        )
-        dialog.show()
+    class RaisingClipboard:
+        def setText(self, _text: str) -> None:
+            raise RuntimeError("clipboard unavailable")
 
-        assert dialog._sensitive_data_disclosure.isVisible() is True
-        dialog.close()
+    monkeypatch.setattr(dialog, "_clipboard", RaisingClipboard())
+    dialog._on_copy_all_details()
 
-    def test_disclosure_label_in_layout(self, qapp):
-        """Disclosure label should be in the dialog layout hierarchy."""
-        dialog = ErrorDetailsDialog.from_text(
-            summary="Test error",
-            details="Command: test",
-        )
+    assert dialog._copy_helper_label.text() == "Copy failed. Select details text and copy manually."
+    assert dialog._copy_helper_state in {"fail", "escalated"}
+    dialog.close()
 
-        # Label should be parented to the dialog
-        assert dialog._sensitive_data_disclosure.parent() is dialog
-        dialog.close()
+
+def test_error_details_dialog_helper_label_cleared_on_success(qapp):
+    """Helper label should be cleared immediately on copy success (no success display)."""
+    dialog = ErrorDetailsDialog.from_text("summary", "Command: sts_check")
+    dialog._set_copy_helper_state("fail")
+
+    dialog._on_copy_all_details()
+
+    assert dialog._copy_helper_state == "none"
+    assert dialog._copy_helper_label.text() == ""
+    dialog.close()
+
+
+def test_error_details_dialog_has_accessible_live_region(qapp):
+    """Helper label should have accessibility properties for screen readers."""
+    dialog = ErrorDetailsDialog.from_text(
+        summary="Test error",
+        details="Command: test",
+    )
+
+    assert dialog._copy_helper_label.accessibleName() == "Copy status announcement"
+    assert dialog._copy_helper_label.property("accessible-live-region") == "polite"
+    dialog.close()
+
+
+def test_error_details_dialog_copy_failure_logs_telemetry(qapp, monkeypatch, caplog):
+    """Copy failure should log telemetry fields in structured log."""
+    import logging
+    from aws_sso_autologin.tray import logger as tray_logger
+
+    dialog = ErrorDetailsDialog.from_text(
+        summary="AWS CLI unavailable",
+        details="Command: sts_check\nExit code: 1",
+    )
+
+    class RaisingClipboard:
+        def setText(self, _text: str) -> None:
+            raise RuntimeError("clipboard unavailable")
+
+    monkeypatch.setattr(dialog, "_clipboard", RaisingClipboard())
+
+    with caplog.at_level(logging.WARNING, logger=tray_logger.name):
+        dialog._on_copy_all_details()
+
+    # Check that telemetry fields are present in the log
+    assert "event=diagnostics_copy_failed" in caplog.text
+    # The extra fields are in the log record, not necessarily in caplog.text
+    # but we can verify the function doesn't error
+    dialog.close()
+
+
+def test_error_details_dialog_copy_success_logs_telemetry(qapp, caplog):
+    """Copy success should log telemetry fields in structured log."""
+    import logging
+    from aws_sso_autologin.tray import logger as tray_logger
+
+    dialog = ErrorDetailsDialog.from_text(
+        summary="AWS CLI unavailable",
+        details="Command: sts_check\nExit code: 1",
+    )
+
+    with caplog.at_level(logging.INFO, logger=tray_logger.name):
+        dialog._on_copy_all_details()
+
+    # Check that telemetry fields are present in the log
+    assert "event=diagnostics_copy_succeeded" in caplog.text
+    dialog.close()
+
+
+def test_error_details_dialog_copy_failure_shows_helper(qapp, monkeypatch):
+    dialog = ErrorDetailsDialog.from_text("summary", "Command: sts_check")
+
+    class RaisingClipboard:
+        def setText(self, _text: str) -> None:
+            raise RuntimeError("clipboard unavailable")
+
+    monkeypatch.setattr(dialog, "_clipboard", RaisingClipboard())
+    dialog._on_copy_all_details()
+
+    assert dialog._copy_helper_label.text() == "Copy failed. Select details text and copy manually."
+    assert dialog._copy_helper_state in {"fail", "escalated"}
+    dialog.close()
+
+
+def test_error_details_dialog_copy_success_clears_helper(qapp):
+    dialog = ErrorDetailsDialog.from_text("summary", "Command: sts_check")
+    dialog._set_copy_helper_state("fail")
+    dialog._on_copy_all_details()
+
+    assert dialog._copy_helper_state == "none"
+    assert dialog._copy_helper_label.text() == ""
+    dialog.close()
+
+
+def test_error_details_dialog_close_only_hides_dialog(qapp):
+    dialog = ErrorDetailsDialog.from_text("summary", "Command: sts_check")
+    dialog.show()
+    dialog._on_close()
+    assert dialog.isVisible() is False

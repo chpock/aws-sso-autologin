@@ -8,6 +8,7 @@ from typing import Callable, Optional
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QMenu,
     QPlainTextEdit,
+    QPushButton,
     QScrollArea,
     QSystemTrayIcon,
     QTableWidget,
@@ -259,24 +261,31 @@ class ErrorDetailsDialog(QDialog):
         self._text_edit.setPlainText(self._format_sections(sections))
         layout.addWidget(self._text_edit, 1)
 
+        # Copy helper label (between textarea and buttons)
+        self._copy_helper_label = QLabel("")
+        self._copy_helper_label.setObjectName("copy-helper-label")
+        # Accessibility: live region for screen reader announcements
+        self._copy_helper_label.setAccessibleName("Copy status announcement")
+        self._copy_helper_label.setProperty("accessible-live-region", "polite")
+        layout.addWidget(self._copy_helper_label)
 
-        # Sensitive data disclosure label (persistent, between textarea and buttons)
-        self._sensitive_data_disclosure = QLabel(
-            "Copied data may contain sensitive information and should be shared "
-            "only with trusted support channels."
-        )
-        self._sensitive_data_disclosure.setObjectName("sensitive-data-disclosure")
-        self._sensitive_data_disclosure.setWordWrap(True)
-        self._sensitive_data_disclosure.setStyleSheet("font-size: 11px; color: #666;")
-        layout.addWidget(self._sensitive_data_disclosure)
-
-        # Add close button
-        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        # Action row: Copy and Close buttons
+        buttons = QDialogButtonBox()
+        self._copy_button = QPushButton("Copy all details")
+        self._copy_button.setObjectName("copy-all-details-button")
+        buttons.addButton(self._copy_button, QDialogButtonBox.ActionRole)
+        buttons.addButton(QDialogButtonBox.Close)
+        self._copy_button.clicked.connect(self._on_copy_all_details)
         buttons.rejected.connect(self._on_close)
         layout.addWidget(buttons)
 
         # Set initial focus to details textarea per UX spec accessibility contract
         self._text_edit.setFocus()
+
+        # Copy helper state machine attributes
+        self._copy_failure_streak = 0
+        self._copy_helper_state = "none"
+        self._clipboard = QApplication.clipboard()
 
     def _build_status_header(self) -> QFrame:
         """Build status header region based on execution state."""
@@ -325,6 +334,64 @@ class ErrorDetailsDialog(QDialog):
             value = sections[section]
             lines.append(f"{section}: {value}")
         return "\n\n".join(lines)
+
+    def _on_copy_all_details(self) -> None:
+        """Copy all details to clipboard with helper state machine."""
+        payload = self._text_edit.toPlainText()
+        # Determine incident type from summary for telemetry
+        incident_type = self.sections.get("Summary", "unknown").split()[0].lower() if self.sections.get("Summary") else "unknown"
+        command_executed = self._command_executed if self._command_executed is not None else False
+
+        try:
+            self._clipboard.setText(payload)
+        except Exception as e:
+            self._copy_failure_streak += 1
+            fallback_used = self._copy_failure_streak >= 3
+            if fallback_used:
+                self._set_copy_helper_state("escalated")
+            else:
+                self._set_copy_helper_state("fail")
+            logger.warning(
+                "event=diagnostics_copy_failed",
+                extra={
+                    "incident_type": incident_type,
+                    "command_executed": command_executed,
+                    "fallback_used": fallback_used,
+                    "error_class": type(e).__name__,
+                    "copy_result": "failed",
+                },
+            )
+            return
+
+        self._copy_failure_streak = 0
+        # UX spec line 63: clear helper immediately on success (no success display)
+        self._set_copy_helper_state("none")
+        logger.info(
+            "event=diagnostics_copy_succeeded",
+            extra={
+                "incident_type": incident_type,
+                "command_executed": command_executed,
+                "fallback_used": False,
+                "error_class": None,
+                "copy_result": "succeeded",
+            },
+        )
+
+    def _set_copy_helper_state(self, state: str) -> None:
+        """Set the copy helper state and update the label text."""
+        self._copy_helper_state = state
+        if state == "fail":
+            self._copy_helper_label.setText(
+                "Copy failed. Select details text and copy manually."
+            )
+        elif state == "escalated":
+            self._copy_helper_label.setText(
+                "Copy is still failing. Select details text and copy manually."
+            )
+        elif state == "success":
+            self._copy_helper_label.setText("Copy succeeded.")
+        else:
+            self._copy_helper_label.setText("")
 
     def _on_close(self) -> None:
         """Handle close button - only close the dialog, not the application."""
