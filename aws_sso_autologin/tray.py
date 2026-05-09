@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QHeaderView,
     QMenu,
+    QPlainTextEdit,
     QSystemTrayIcon,
     QTableWidget,
     QTableWidgetItem,
@@ -204,7 +205,7 @@ class StatusWindowProxy:
 
 
 class ErrorDetailsDialog(QDialog):
-    """Modal diagnostics dialog for warning/error profile states."""
+    """Floating diagnostics dialog for warning/error profile states."""
 
     SECTION_ORDER = [
         "Summary",
@@ -219,28 +220,48 @@ class ErrorDetailsDialog(QDialog):
     def __init__(self, sections: dict[str, str], parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("AWS SSO Autologin Diagnostics")
-        self.resize(760, 480)
+        self.setFixedSize(760, 480)
         self.section_order = list(self.SECTION_ORDER)
         self.sections = dict(sections)
 
-        layout = QFormLayout(self)
+        # Set window flags for floating behavior across all compositors
+        # WindowStaysOnTopHint makes it float above other windows
+        # Dialog flag ensures it's treated as a dialog window
+        self.setWindowFlags(
+            Qt.Dialog
+            | Qt.WindowStaysOnTopHint
+            | Qt.WindowCloseButtonHint
+            | Qt.WindowTitleHint
+        )
 
-        for section in self.section_order:
-            value = sections.get(section, "")
-            field = QLabel(value)
-            field.setWordWrap(True)
-            field.setTextInteractionFlags(
-                Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard
-            )
-            layout.addRow(QLabel(section), field)
+        layout = QVBoxLayout(self)
 
+        # Create readonly text area with all error details
+        self._text_edit = QPlainTextEdit()
+        self._text_edit.setReadOnly(True)
+        self._text_edit.setPlainText(self._format_sections(sections))
+        layout.addWidget(self._text_edit)
+
+        # Add close button
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
-        buttons.rejected.connect(self.reject)
-        layout.addRow(buttons)
+        buttons.rejected.connect(self._on_close)
+        layout.addWidget(buttons)
 
         close_button = buttons.button(QDialogButtonBox.Close)
         if close_button is not None:
             close_button.setFocus()
+
+    def _format_sections(self, sections: dict[str, str]) -> str:
+        """Format sections into a single text block for display and copying."""
+        lines = []
+        for section in self.section_order:
+            value = sections.get(section, "")
+            lines.append(f"{section}: {value}")
+        return "\n\n".join(lines)
+
+    def _on_close(self) -> None:
+        """Handle close button - only close the dialog, not the application."""
+        self.close()
 
     @classmethod
     def from_text(

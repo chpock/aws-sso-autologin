@@ -169,6 +169,7 @@ class AutologinApp:
             self._app = QApplication(self._args)
             self._app.setApplicationName("AWS SSO Autologin")
             self._app.setOrganizationName("aws-sso-autologin")
+            self._app.setQuitOnLastWindowClosed(False)
             logger.debug("AutologinApp: QApplication initialized")
             return True
         except Exception as e:

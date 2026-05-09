@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from aws_sso_autologin.constants import MAX_PROFILES_IN_ROOT_MENU, MAX_SUBMENU_PROFILES
@@ -287,6 +288,63 @@ def test_error_details_dialog_focus_defaults_to_close_button(qapp):
 
     assert dialog.focusWidget() is not None
     assert "Close" in dialog.focusWidget().text()
+    dialog.close()
+
+
+def test_error_details_dialog_has_readonly_text_edit(qapp):
+    """Dialog should have a readonly text edit for error details."""
+    dialog = ErrorDetailsDialog.from_text(
+        summary="Test error",
+        details="Command: test_cmd\nExit code: 1",
+    )
+
+    # Check that text edit exists and is readonly
+    assert hasattr(dialog, '_text_edit')
+    assert dialog._text_edit.isReadOnly()
+    dialog.close()
+
+
+def test_error_details_dialog_text_contains_all_sections(qapp):
+    """Text edit should contain all section information."""
+    dialog = ErrorDetailsDialog.from_text(
+        summary="AWS CLI unavailable",
+        details=(
+            "Command: sts_check\n"
+            "Exit code: 1\n"
+            "stderr: error message"
+        ),
+    )
+
+    text = dialog._text_edit.toPlainText()
+    # Check that all sections are present
+    assert "Summary: AWS CLI unavailable" in text
+    assert "Command: sts_check" in text
+    assert "Exit code: 1" in text
+    assert "stderr: error message" in text
+    dialog.close()
+
+
+def test_error_details_dialog_has_floating_window_flags(qapp):
+    """Dialog should have WindowStaysOnTopHint flag set."""
+    dialog = ErrorDetailsDialog.from_text(
+        summary="Test error",
+        details="Command: test",
+    )
+
+    flags = dialog.windowFlags()
+    assert flags & Qt.WindowStaysOnTopHint
+    dialog.close()
+
+
+def test_error_details_dialog_is_fixed_size(qapp):
+    dialog = ErrorDetailsDialog.from_text(
+        summary="Test error",
+        details="Command: test",
+    )
+
+    assert dialog.minimumSize() == dialog.maximumSize()
+    assert dialog.minimumWidth() == 760
+    assert dialog.minimumHeight() == 480
     dialog.close()
 
 

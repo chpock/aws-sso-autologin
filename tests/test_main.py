@@ -30,6 +30,19 @@ def test_autologin_app_with_args():
     assert app._args == args
 
 
+def test_initialize_qt_disables_quit_on_last_window_closed():
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    app = AutologinApp([])
+    mock_qapp = MagicMock()
+
+    with patch("aws_sso_autologin.__main__.QApplication", return_value=mock_qapp):
+        ok = app._initialize_qt()
+
+    assert ok is True
+    mock_qapp.setQuitOnLastWindowClosed.assert_called_once_with(False)
+
+
 def test_handle_system_signal_logs_and_requests_graceful_shutdown():
     from aws_sso_autologin.__main__ import AutologinApp
 
