@@ -669,3 +669,10 @@ def test_error_details_dialog_copy_success_clears_helper(qapp):
     assert dialog._copy_helper_state == "none"
     assert dialog._copy_helper_label.text() == ""
     dialog.close()
+
+
+def test_error_details_dialog_close_only_hides_dialog(qapp):
+    dialog = ErrorDetailsDialog.from_text("summary", "Command: sts_check")
+    dialog.show()
+    dialog._on_close()
+    assert dialog.isVisible() is False
