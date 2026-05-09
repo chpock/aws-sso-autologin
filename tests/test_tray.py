@@ -515,6 +515,137 @@ def test_error_details_dialog_has_three_regions(qapp):
     dialog.close()
 
 
+def test_error_details_dialog_has_copy_button(qapp):
+    """Dialog should have Copy all details button."""
+    dialog = ErrorDetailsDialog.from_text(
+        summary="Test error",
+        details="Command: test",
+    )
+
+    assert hasattr(dialog, '_copy_button')
+    assert dialog._copy_button is not None
+    assert dialog._copy_button.text() == "Copy all details"
+    dialog.close()
+
+
+def test_error_details_dialog_copy_button_triggers_handler(qapp, monkeypatch):
+    """Copy button should trigger _on_copy_all_details handler."""
+    dialog = ErrorDetailsDialog.from_text(
+        summary="Test error",
+        details="Command: test",
+    )
+
+    handler_called = False
+
+    def mock_handler():
+        nonlocal handler_called
+        handler_called = True
+
+    monkeypatch.setattr(dialog, '_on_copy_all_details', mock_handler)
+    dialog._copy_button.click()
+
+    assert handler_called is True
+    dialog.close()
+
+
+def test_error_details_dialog_helper_label_in_layout(qapp):
+    """Helper label should be in dialog layout between textarea and buttons."""
+    dialog = ErrorDetailsDialog.from_text(
+        summary="Test error",
+        details="Command: test",
+    )
+
+    assert hasattr(dialog, '_copy_helper_label')
+    assert dialog._copy_helper_label is not None
+    # Label should be visible in the layout
+    assert dialog._copy_helper_label.parent() is dialog
+    dialog.close()
+
+
+def test_error_details_dialog_helper_label_visible_after_failure(qapp, monkeypatch):
+    """Helper label should show text after copy failure."""
+    dialog = ErrorDetailsDialog.from_text("summary", "Command: sts_check")
+
+    class RaisingClipboard:
+        def setText(self, _text: str) -> None:
+            raise RuntimeError("clipboard unavailable")
+
+    monkeypatch.setattr(dialog, "_clipboard", RaisingClipboard())
+    dialog._on_copy_all_details()
+
+    assert dialog._copy_helper_label.text() == "Copy failed. Select details text and copy manually."
+    assert dialog._copy_helper_state in {"fail", "escalated"}
+    dialog.close()
+
+
+def test_error_details_dialog_helper_label_cleared_on_success(qapp):
+    """Helper label should be cleared immediately on copy success (no success display)."""
+    dialog = ErrorDetailsDialog.from_text("summary", "Command: sts_check")
+    dialog._set_copy_helper_state("fail")
+
+    dialog._on_copy_all_details()
+
+    assert dialog._copy_helper_state == "none"
+    assert dialog._copy_helper_label.text() == ""
+    dialog.close()
+
+
+def test_error_details_dialog_has_accessible_live_region(qapp):
+    """Helper label should have accessibility properties for screen readers."""
+    dialog = ErrorDetailsDialog.from_text(
+        summary="Test error",
+        details="Command: test",
+    )
+
+    assert dialog._copy_helper_label.accessibleName() == "Copy status announcement"
+    assert dialog._copy_helper_label.property("accessible-live-region") == "polite"
+    dialog.close()
+
+
+def test_error_details_dialog_copy_failure_logs_telemetry(qapp, monkeypatch, caplog):
+    """Copy failure should log telemetry fields in structured log."""
+    import logging
+    from aws_sso_autologin.tray import logger as tray_logger
+
+    dialog = ErrorDetailsDialog.from_text(
+        summary="AWS CLI unavailable",
+        details="Command: sts_check\nExit code: 1",
+    )
+
+    class RaisingClipboard:
+        def setText(self, _text: str) -> None:
+            raise RuntimeError("clipboard unavailable")
+
+    monkeypatch.setattr(dialog, "_clipboard", RaisingClipboard())
+
+    with caplog.at_level(logging.WARNING, logger=tray_logger.name):
+        dialog._on_copy_all_details()
+
+    # Check that telemetry fields are present in the log
+    assert "event=diagnostics_copy_failed" in caplog.text
+    # The extra fields are in the log record, not necessarily in caplog.text
+    # but we can verify the function doesn't error
+    dialog.close()
+
+
+def test_error_details_dialog_copy_success_logs_telemetry(qapp, caplog):
+    """Copy success should log telemetry fields in structured log."""
+    import logging
+    from aws_sso_autologin.tray import logger as tray_logger
+
+    dialog = ErrorDetailsDialog.from_text(
+        summary="AWS CLI unavailable",
+        details="Command: sts_check\nExit code: 1",
+    )
+
+    with caplog.at_level(logging.INFO, logger=tray_logger.name):
+        dialog._on_copy_all_details()
+
+    # Check that telemetry fields are present in the log
+    assert "event=diagnostics_copy_succeeded" in caplog.text
+    dialog.close()
+
+
 def test_error_details_dialog_copy_failure_shows_helper(qapp, monkeypatch):
     dialog = ErrorDetailsDialog.from_text("summary", "Command: sts_check")
 

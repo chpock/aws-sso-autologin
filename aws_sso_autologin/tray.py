@@ -261,8 +261,21 @@ class ErrorDetailsDialog(QDialog):
         self._text_edit.setPlainText(self._format_sections(sections))
         layout.addWidget(self._text_edit, 1)
 
-        # Add close button
-        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        # Copy helper label (between textarea and buttons)
+        self._copy_helper_label = QLabel("")
+        self._copy_helper_label.setObjectName("copy-helper-label")
+        # Accessibility: live region for screen reader announcements
+        self._copy_helper_label.setAccessibleName("Copy status announcement")
+        self._copy_helper_label.setProperty("accessible-live-region", "polite")
+        layout.addWidget(self._copy_helper_label)
+
+        # Action row: Copy and Close buttons
+        buttons = QDialogButtonBox()
+        self._copy_button = QPushButton("Copy all details")
+        self._copy_button.setObjectName("copy-all-details-button")
+        buttons.addButton(self._copy_button, QDialogButtonBox.ActionRole)
+        buttons.addButton(QDialogButtonBox.Close)
+        self._copy_button.clicked.connect(self._on_copy_all_details)
         buttons.rejected.connect(self._on_close)
         layout.addWidget(buttons)
 
@@ -272,7 +285,6 @@ class ErrorDetailsDialog(QDialog):
         # Copy helper state machine attributes
         self._copy_failure_streak = 0
         self._copy_helper_state = "none"
-        self._copy_helper_label = QLabel("")
         self._clipboard = QApplication.clipboard()
 
     def _build_status_header(self) -> QFrame:
@@ -326,21 +338,44 @@ class ErrorDetailsDialog(QDialog):
     def _on_copy_all_details(self) -> None:
         """Copy all details to clipboard with helper state machine."""
         payload = self._text_edit.toPlainText()
+        # Determine incident type from summary for telemetry
+        incident_type = self.sections.get("Summary", "unknown").split()[0].lower() if self.sections.get("Summary") else "unknown"
+        command_executed = self._command_executed if self._command_executed is not None else False
+
         try:
             self._clipboard.setText(payload)
-        except Exception:
+        except Exception as e:
             self._copy_failure_streak += 1
-            if self._copy_failure_streak >= 3:
+            fallback_used = self._copy_failure_streak >= 3
+            if fallback_used:
                 self._set_copy_helper_state("escalated")
             else:
                 self._set_copy_helper_state("fail")
-            logger.warning("event=diagnostics_copy_failed")
+            logger.warning(
+                "event=diagnostics_copy_failed",
+                extra={
+                    "incident_type": incident_type,
+                    "command_executed": command_executed,
+                    "fallback_used": fallback_used,
+                    "error_class": type(e).__name__,
+                    "copy_result": "failed",
+                },
+            )
             return
 
         self._copy_failure_streak = 0
-        self._set_copy_helper_state("success")
+        # UX spec line 63: clear helper immediately on success (no success display)
         self._set_copy_helper_state("none")
-        logger.info("event=diagnostics_copy_succeeded")
+        logger.info(
+            "event=diagnostics_copy_succeeded",
+            extra={
+                "incident_type": incident_type,
+                "command_executed": command_executed,
+                "fallback_used": False,
+                "error_class": None,
+                "copy_result": "succeeded",
+            },
+        )
 
     def _set_copy_helper_state(self, state: str) -> None:
         """Set the copy helper state and update the label text."""
