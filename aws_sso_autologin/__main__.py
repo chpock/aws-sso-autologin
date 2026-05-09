@@ -272,21 +272,19 @@ class AutologinApp:
             )
 
         if session_info.failure_type == SessionFailureType.TIMEOUT:
-            reason = session_info.error_message or "Command timed out"
             return ProfileStatus(
                 profile_name=profile_name,
                 state=ProfileState.ERROR,
-                short_reason=reason,
+                short_reason="Command timed out",
                 diagnostics_summary="Command timed out",
                 diagnostics_details=self._build_diagnostics_details(session_info),
             )
 
         if session_info.failure_type == SessionFailureType.PERMISSION_DENIED:
-            reason = session_info.error_message or "Access denied"
             return ProfileStatus(
                 profile_name=profile_name,
                 state=ProfileState.ERROR,
-                short_reason=reason,
+                short_reason="Access denied",
                 diagnostics_summary="Access denied",
                 diagnostics_details=self._build_diagnostics_details(session_info),
             )

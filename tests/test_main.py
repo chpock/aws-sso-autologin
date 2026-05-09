@@ -147,7 +147,7 @@ def test_on_status_change_timeout_sets_warning_state():
         is_active=False,
         seconds_remaining=0,
         failure_type=SessionFailureType.TIMEOUT,
-        error_message="Command timed out",
+        error_message="AWS command timed out after 10s and was terminated",
     )
 
     app._on_status_change("test-profile", RenewalStatus.UNKNOWN, info)
@@ -170,13 +170,14 @@ def test_on_status_change_permission_denied_sets_error_state():
         is_active=False,
         seconds_remaining=0,
         failure_type=SessionFailureType.PERMISSION_DENIED,
-        error_message="Access denied",
+        error_message="AccessDenied: User is not authorized",
     )
 
     app._on_status_change("test-profile", RenewalStatus.UNKNOWN, info)
 
     status = app._tray.update_profile.call_args.args[0]
     assert status.state == ProfileState.ERROR
+    assert status.short_reason == "Access denied"
     assert status.diagnostics_summary == "Access denied"
 
 
