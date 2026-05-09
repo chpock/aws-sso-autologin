@@ -51,6 +51,28 @@ def test_autologin_app_detect_tray_host_failure():
     assert result is False
 
 
+def test_autologin_app_detect_tray_host_failure_logs_preflight_details():
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    app = AutologinApp()
+
+    with patch("aws_sso_autologin.__main__.check_tray_host_available", return_value=False):
+        with patch("aws_sso_autologin.__main__.detect_tray_host") as mock_detect:
+            mock_host_info = Mock()
+            mock_host_info.name = "Unknown Desktop Environment"
+            mock_host_info.host_type.value = "unknown"
+            mock_host_info.supports_status_notifier = False
+            mock_host_info.supports_xembed = False
+            mock_detect.return_value = mock_host_info
+            with patch("aws_sso_autologin.__main__.logger.error") as mock_error:
+                app._detect_tray_host()
+
+    assert any(
+        call.kwargs.get("extra", {}).get("event") == "tray_host_preflight_failed"
+        for call in mock_error.call_args_list
+    )
+
+
 def test_autologin_app_detect_tray_host_failure_emits_stdout_guidance():
     from aws_sso_autologin.__main__ import AutologinApp
 

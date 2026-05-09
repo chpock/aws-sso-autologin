@@ -71,6 +71,27 @@ def test_check_tray_host_available_returns_bool():
     assert isinstance(result, bool)
 
 
+def test_check_tray_host_available_logs_diagnostics_for_unknown_env():
+    from aws_sso_autologin import service
+
+    with patch.dict(
+        "os.environ",
+        {
+            "DESKTOP_SESSION": "",
+            "XDG_CURRENT_DESKTOP": "",
+            "WAYLAND_DISPLAY": "",
+            "DISPLAY": "",
+        },
+        clear=False,
+    ):
+        with patch.object(service.logger, "warning") as mock_warning:
+            result = service.check_tray_host_available()
+
+    assert result is False
+    kwargs = mock_warning.call_args.kwargs
+    assert kwargs["extra"]["event"] == "tray_host_unavailable_unknown"
+
+
 def test_detect_tray_host_detects_desktop_session():
     """Test that detect_tray_host checks DESKTOP_SESSION."""
     with patch.dict('os.environ', {'DESKTOP_SESSION': 'gnome', 'XDG_CURRENT_DESKTOP': ''}):
@@ -126,6 +147,18 @@ def test_detect_tray_host_detects_xfce():
         result = detect_tray_host()
         assert isinstance(result, TrayHostInfo)
         assert result.host_type in [TrayHostType.XFCE, TrayHostType.UNKNOWN]
+
+
+def test_detect_tray_host_detects_hyprland_as_generic():
+    with patch.dict('os.environ', {'DESKTOP_SESSION': '', 'XDG_CURRENT_DESKTOP': 'Hyprland'}):
+        result = detect_tray_host()
+        assert result.host_type == TrayHostType.GENERIC
+        assert result.supports_status_notifier is True
+
+
+def test_check_tray_host_available_true_for_hyprland():
+    with patch.dict('os.environ', {'DESKTOP_SESSION': '', 'XDG_CURRENT_DESKTOP': 'Hyprland'}):
+        assert check_tray_host_available() is True
 
 
 def test_tray_host_error_class():

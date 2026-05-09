@@ -31,3 +31,20 @@ go.work.sum
 # .idea/
 # .vscode/
 .worktrees/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+
+# Test and tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local environment files
+.python-version

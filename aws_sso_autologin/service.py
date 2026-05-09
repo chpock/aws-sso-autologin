@@ -114,6 +114,9 @@ _DESKTOP_ENV_MAP = {
     # LXQt
     'lxqt': TrayHostType.LXQT,
     'lxqt-session': TrayHostType.LXQT,
+
+    # Wayland compositors (StatusNotifier via panel hosts like Waybar)
+    'hyprland': TrayHostType.GENERIC,
 }
 
 
@@ -149,6 +152,19 @@ def detect_tray_host() -> TrayHostInfo:
         TrayHostInfo with details about the detected tray host.
         Returns UNKNOWN type if no recognized environment is detected.
     """
+    desktop_session = os.environ.get("DESKTOP_SESSION", "")
+    xdg_current_desktop = os.environ.get("XDG_CURRENT_DESKTOP", "")
+    logger.debug(
+        "Tray host env probe",
+        extra={
+            "event": "tray_host_env_probe",
+            "desktop_session": desktop_session,
+            "xdg_current_desktop": xdg_current_desktop,
+            "wayland_display": os.environ.get("WAYLAND_DISPLAY", ""),
+            "display": os.environ.get("DISPLAY", ""),
+        },
+    )
+
     # Try DESKTOP_SESSION first
     host_type = _detect_from_env_var('DESKTOP_SESSION')
     
@@ -172,7 +188,7 @@ def detect_tray_host() -> TrayHostInfo:
     supports_status_notifier = host_type in [
         TrayHostType.GNOME, TrayHostType.KDE, TrayHostType.XFCE,
         TrayHostType.MATE, TrayHostType.CINNAMON, TrayHostType.PANTHEON,
-        TrayHostType.BUDGIE, TrayHostType.LXQT,
+        TrayHostType.BUDGIE, TrayHostType.LXQT, TrayHostType.GENERIC,
     ]
     
     # XEmbed is legacy support - fewer desktops support it now
@@ -221,11 +237,32 @@ def check_tray_host_available() -> bool:
     # 1. We detected a known desktop environment
     # 2. It supports at least one tray protocol (StatusNotifier or XEmbed)
     if info.host_type == TrayHostType.UNKNOWN:
-        logger.warning("No compatible tray host detected")
+        logger.warning(
+            "No compatible tray host detected",
+            extra={
+                "event": "tray_host_unavailable_unknown",
+                "desktop_session": os.environ.get("DESKTOP_SESSION", ""),
+                "xdg_current_desktop": os.environ.get("XDG_CURRENT_DESKTOP", ""),
+                "wayland_display": os.environ.get("WAYLAND_DISPLAY", ""),
+                "display": os.environ.get("DISPLAY", ""),
+                "dbus_session_bus_address_set": bool(
+                    os.environ.get("DBUS_SESSION_BUS_ADDRESS")
+                ),
+            },
+        )
         return False
     
     if not info.supports_status_notifier and not info.supports_xembed:
-        logger.warning(f"Detected desktop {info.name} does not support required tray protocols")
+        logger.warning(
+            f"Detected desktop {info.name} does not support required tray protocols",
+            extra={
+                "event": "tray_host_unavailable_protocol_mismatch",
+                "detected_host": info.name,
+                "host_type": info.host_type.value,
+                "supports_status_notifier": info.supports_status_notifier,
+                "supports_xembed": info.supports_xembed,
+            },
+        )
         return False
     
     logger.debug(f"Compatible tray host available: {info.name}")

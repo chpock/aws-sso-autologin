@@ -96,12 +96,23 @@ class AutologinApp:
         Returns:
             True if a compatible tray host is available, False otherwise
         """
+        host_info = detect_tray_host()
+
         if not check_tray_host_available():
+            logger.error(
+                "Tray host preflight failed",
+                extra={
+                    "event": "tray_host_preflight_failed",
+                    "detected_host": host_info.name,
+                    "host_type": host_info.host_type.value,
+                    "supports_status_notifier": host_info.supports_status_notifier,
+                    "supports_xembed": host_info.supports_xembed,
+                },
+            )
             print(TRAY_HOST_REQUIRED_MESSAGE)
             logger.error("No compatible tray host detected")
             return False
-        
-        host_info = detect_tray_host()
+
         logger.info(f"Detected tray host: {host_info.name}")
         return True
     
