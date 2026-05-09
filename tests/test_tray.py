@@ -500,3 +500,16 @@ def test_status_tray_no_profiles_single_separator_before_quit(qapp):
     assert non_separator_actions[-1].text() == "Quit"
 
     tray.close()
+
+
+def test_error_details_dialog_has_three_regions(qapp):
+    dialog = ErrorDetailsDialog.from_text(
+        summary="AWS CLI unavailable",
+        details="Command: sts_check\nExit code: 1\nstderr: fail",
+    )
+
+    assert dialog._status_header is not None
+    assert dialog._smart_fields_region is not None
+    assert dialog._text_edit is not None
+    assert dialog._text_edit.isReadOnly() is True
+    dialog.close()
