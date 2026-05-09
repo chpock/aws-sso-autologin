@@ -1,6 +1,6 @@
 # AWS SSO Autologin Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `leyline:subagent-driven-development` (recommended) or `leyline:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `leyline:subagent-driven-development` (recommended) or `leyline:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Build a Linux system tray application that monitors AWS SSO sessions and automatically refreshes them before expiration using a serial login queue.
 
@@ -46,11 +46,11 @@
 - Create: `aws_sso_autologin/__init__.py`
 - Create: `tests/__init__.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Exception: project-setup task - no failing test. Verification: Directory structure exists and imports work.
 
-- [ ] **Step 2: Create pyproject.toml**
+- [x] **Step 2: Create pyproject.toml**
 
 ```toml
 [build-system]
@@ -101,13 +101,13 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 ```
 
-- [ ] **Step 3: Create requirements.txt**
+- [x] **Step 3: Create requirements.txt**
 
 ```
 PySide6>=6.6.0
 ```
 
-- [ ] **Step 4: Create package __init__.py**
+- [x] **Step 4: Create package __init__.py**
 
 ```python
 """AWS SSO Autologin - System tray app for automatic AWS SSO session refresh."""
@@ -125,13 +125,13 @@ __all__ = [
 ]
 ```
 
-- [ ] **Step 5: Create tests __init__.py**
+- [x] **Step 5: Create tests __init__.py**
 
 ```python
 """Tests for AWS SSO Autologin."""
 ```
 
-- [ ] **Step 6: Verify imports work**
+- [x] **Step 6: Verify imports work**
 
 ```bash
 cd .worktrees/feat/aws-sso-autologin
@@ -139,7 +139,7 @@ python -c "import aws_sso_autologin; print('Import OK')"
 # Expected: Import OK
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add pyproject.toml requirements.txt aws_sso_autologin/__init__.py tests/__init__.py
@@ -153,7 +153,7 @@ git commit -m "Phase 1: Create project structure and dependencies"
 - Create: `aws_sso_autologin/errors.py`
 - Test: `tests/test_constants.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 def test_session_duration_constant_exists():
@@ -174,7 +174,7 @@ def test_error_classes_exist():
     assert issubclass(ClassificationError, AutologinError)
 ```
 
-- [ ] **Step 2: Run the test, confirm failure**
+- [x] **Step 2: Run the test, confirm failure**
 
 ```bash
 cd .worktrees/feat/aws-sso-autologin
@@ -182,7 +182,7 @@ python -m pytest tests/test_constants.py -v
 # Expected: 4 failing tests due to missing modules
 ```
 
-- [ ] **Step 3: Implement constants.py**
+- [x] **Step 3: Implement constants.py**
 
 ```python
 """Application constants."""
@@ -221,7 +221,7 @@ HEARTBEAT_TIMEOUT_SECONDS = 300  # 5 minutes
 TRAY_HOST_DETECTION_TIMEOUT_MS = 5000
 ```
 
-- [ ] **Step 4: Implement errors.py**
+- [x] **Step 4: Implement errors.py**
 
 ```python
 """Exception classes for AWS SSO Autologin."""
@@ -262,7 +262,7 @@ class TrayHostError(AutologinError):
     pass
 ```
 
-- [ ] **Step 5: Create test_constants.py**
+- [x] **Step 5: Create test_constants.py**
 
 ```python
 """Tests for constants module."""
@@ -345,14 +345,14 @@ def test_error_hierarchy():
     assert issubclass(TrayHostError, AutologinError)
 ```
 
-- [ ] **Step 6: Run tests, confirm pass**
+- [x] **Step 6: Run tests, confirm pass**
 
 ```bash
 python -m pytest tests/test_constants.py -v
 # Expected: 11 passing tests
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add aws_sso_autologin/constants.py aws_sso_autologin/errors.py tests/test_constants.py
@@ -365,7 +365,7 @@ git commit -m "Phase 1: Add constants and error classes"
 - Create: `aws_sso_autologin/logger.py`
 - Test: `tests/test_logger.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 def test_get_logger_returns_logger():
@@ -380,14 +380,14 @@ def test_logger_has_stream_handler():
     assert any(isinstance(h, logging.StreamHandler) for h in logger.handlers)
 ```
 
-- [ ] **Step 2: Run the test, confirm failure**
+- [x] **Step 2: Run the test, confirm failure**
 
 ```bash
 python -m pytest tests/test_logger.py -v
 # Expected: 2 failing tests due to missing module
 ```
 
-- [ ] **Step 3: Implement logger.py**
+- [x] **Step 3: Implement logger.py**
 
 ```python
 """Logging utilities."""
@@ -442,7 +442,7 @@ def set_debug_mode(enabled: bool = True) -> None:
         handler.setLevel(logging.DEBUG if enabled else logging.INFO)
 ```
 
-- [ ] **Step 4: Create test_logger.py**
+- [x] **Step 4: Create test_logger.py**
 
 ```python
 """Tests for logger module."""
@@ -477,14 +477,14 @@ def test_set_debug_mode():
     assert logger.level == logging.INFO
 ```
 
-- [ ] **Step 5: Run tests, confirm pass**
+- [x] **Step 5: Run tests, confirm pass**
 
 ```bash
 python -m pytest tests/test_logger.py -v
 # Expected: 4 passing tests
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add aws_sso_autologin/logger.py tests/test_logger.py
@@ -501,7 +501,7 @@ git commit -m "Phase 1: Add logger utility"
 - Create: `aws_sso_autologin/tray.py`
 - Test: `tests/test_tray.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 def test_status_window_proxy_init():
@@ -512,14 +512,14 @@ def test_status_window_proxy_init():
     assert proxy is not None
 ```
 
-- [ ] **Step 2: Run the test, confirm failure**
+- [x] **Step 2: Run the test, confirm failure**
 
 ```bash
 python -m pytest tests/test_tray.py::test_status_window_proxy_init -v
 # Expected: ImportError for missing tray module
 ```
 
-- [ ] **Step 3: Implement StatusWindowProxy in tray.py**
+- [x] **Step 3: Implement StatusWindowProxy in tray.py**
 
 ```python
 """System tray UI components."""
@@ -683,7 +683,7 @@ class StatusWindowProxy:
         logger.debug("StatusWindowProxy: Window closed")
 ```
 
-- [ ] **Step 4: Create test_tray.py**
+- [x] **Step 4: Create test_tray.py**
 
 ```python
 """Tests for tray module."""
@@ -784,14 +784,14 @@ class TestProfileStatus:
         assert status.queue_position == 1
 ```
 
-- [ ] **Step 5: Run tests, confirm pass**
+- [x] **Step 5: Run tests, confirm pass**
 
 ```bash
 python -m pytest tests/test_tray.py -v
 # Expected: 7 passing tests
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add aws_sso_autologin/tray.py tests/test_tray.py
@@ -804,7 +804,7 @@ git commit -m "Phase 2: Add StatusWindowProxy for status window"
 - Modify: `aws_sso_autologin/tray.py` (add StatusTray class)
 - Modify: `tests/test_tray.py` (add StatusTray tests)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 def test_status_tray_init(qapp):
@@ -814,25 +814,25 @@ def test_status_tray_init(qapp):
     assert tray.tray_icon is not None
 ```
 
-- [ ] **Step 2: Run the test, confirm failure**
+- [x] **Step 2: Run the test, confirm failure**
 
 ```bash
 python -m pytest tests/test_tray.py::test_status_tray_init -v
 # Expected: AttributeError - StatusTray not found
 ```
 
-- [ ] **Step 3: Implement StatusTray class**
+- [x] **Step 3: Implement StatusTray class**
 
 The StatusTray class should be added to tray.py with menu, icon, and tooltip management.
 
-- [ ] **Step 4: Run tests, confirm pass**
+- [x] **Step 4: Run tests, confirm pass**
 
 ```bash
 python -m pytest tests/test_tray.py -v
 # Expected: 13 passing tests
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add aws_sso_autologin/tray.py tests/test_tray.py
@@ -849,7 +849,7 @@ git commit -m "Phase 2: Add StatusTray with menu and icon management"
 - Create: `aws_sso_autologin/classifier.py`
 - Test: `tests/test_classifier.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 def test_tokenize_log_line_returns_tokens():
@@ -859,25 +859,25 @@ def test_tokenize_log_line_returns_tokens():
     assert len(tokens) > 0
 ```
 
-- [ ] **Step 2: Run the test, confirm failure**
+- [x] **Step 2: Run the test, confirm failure**
 
 ```bash
 python -m pytest tests/test_classifier.py::test_tokenize_log_line_returns_tokens -v
 # Expected: ImportError
 ```
 
-- [ ] **Step 3: Implement classifier module**
+- [x] **Step 3: Implement classifier module**
 
 Create classifier.py with tokenization, classification, and memory-bounded corpus.
 
-- [ ] **Step 4: Run tests, confirm pass**
+- [x] **Step 4: Run tests, confirm pass**
 
 ```bash
 python -m pytest tests/test_classifier.py -v
 # Expected: 25 passing tests
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add aws_sso_autologin/classifier.py tests/test_classifier.py
@@ -894,7 +894,7 @@ git commit -m "Phase 3: Add classifier with tokenization and runtime corpus"
 - Create: `aws_sso_autologin/operator.py`
 - Test: `tests/test_operator.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 def test_health_operator_init():
@@ -903,25 +903,25 @@ def test_health_operator_init():
     assert operator is not None
 ```
 
-- [ ] **Step 2: Run the test, confirm failure**
+- [x] **Step 2: Run the test, confirm failure**
 
 ```bash
 python -m pytest tests/test_operator.py::test_health_operator_init -v
 # Expected: ImportError
 ```
 
-- [ ] **Step 3: Implement operators**
+- [x] **Step 3: Implement operators**
 
 Create operator.py with HealthOperator, SessionOperator, and LoginOperator.
 
-- [ ] **Step 4: Run tests, confirm pass**
+- [x] **Step 4: Run tests, confirm pass**
 
 ```bash
 python -m pytest tests/test_operator.py -v
 # Expected: 24 passing tests
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add aws_sso_autologin/operator.py tests/test_operator.py
@@ -938,7 +938,7 @@ git commit -m "Phase 4: Add HealthOperator, SessionOperator, and LoginOperator"
 - Create: `aws_sso_autologin/service.py`
 - Test: `tests/test_service.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 def test_tray_host_detect_returns_host():
@@ -947,25 +947,25 @@ def test_tray_host_detect_returns_host():
     assert host is not None
 ```
 
-- [ ] **Step 2: Run the test, confirm failure**
+- [x] **Step 2: Run the test, confirm failure**
 
 ```bash
 python -m pytest tests/test_service.py::test_tray_host_detect_returns_host -v
 # Expected: ImportError
 ```
 
-- [ ] **Step 3: Implement service module**
+- [x] **Step 3: Implement service module**
 
 Create service.py with TrayHost interface and environment detection.
 
-- [ ] **Step 4: Run tests, confirm pass**
+- [x] **Step 4: Run tests, confirm pass**
 
 ```bash
 python -m pytest tests/test_service.py -v
 # Expected: 16 passing tests
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add aws_sso_autologin/service.py tests/test_service.py
@@ -978,7 +978,7 @@ git commit -m "Phase 5: Add TrayHost interface and environment detection"
 - Create: `aws_sso_autologin/aws.py`
 - Test: `tests/test_aws.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 def test_check_session_valid_returns_tuple():
@@ -988,25 +988,25 @@ def test_check_session_valid_returns_tuple():
     assert len(result) == 3
 ```
 
-- [ ] **Step 2: Run the test, confirm failure**
+- [x] **Step 2: Run the test, confirm failure**
 
 ```bash
 python -m pytest tests/test_aws.py::test_check_session_valid_returns_tuple -v
 # Expected: ImportError
 ```
 
-- [ ] **Step 3: Implement AWS module**
+- [x] **Step 3: Implement AWS module**
 
 Create aws.py with session checking and SSO login functions.
 
-- [ ] **Step 4: Run tests, confirm pass**
+- [x] **Step 4: Run tests, confirm pass**
 
 ```bash
 python -m pytest tests/test_aws.py -v
 # Expected: 16 passing tests
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add aws_sso_autologin/aws.py tests/test_aws.py
@@ -1023,7 +1023,7 @@ git commit -m "Phase 5: Add AWS CLI integration module"
 - Create: `aws_sso_autologin/__main__.py`
 - Test: `tests/test_main.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 def test_main_imports():
@@ -1031,25 +1031,25 @@ def test_main_imports():
     assert callable(main)
 ```
 
-- [ ] **Step 2: Run the test, confirm failure**
+- [x] **Step 2: Run the test, confirm failure**
 
 ```bash
 python -m pytest tests/test_main.py::test_main_imports -v
 # Expected: ImportError
 ```
 
-- [ ] **Step 3: Implement main entry point**
+- [x] **Step 3: Implement main entry point**
 
 Create __main__.py with AutologinApp class that wires all components together.
 
-- [ ] **Step 4: Run tests, confirm pass**
+- [x] **Step 4: Run tests, confirm pass**
 
 ```bash
 python -m pytest tests/test_main.py -v
 # Expected: 10 passing tests
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add aws_sso_autologin/__main__.py tests/test_main.py
@@ -1065,11 +1065,11 @@ git commit -m "Phase 6: Add main entry point with full integration"
 **Files:**
 - Create: `README.md`
 
-- [ ] **Step 1: Create README**
+- [x] **Step 1: Create README**
 
 Write README.md with installation, usage, and architecture sections.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add README.md
