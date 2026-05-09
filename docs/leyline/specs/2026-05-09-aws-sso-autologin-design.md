@@ -14,6 +14,7 @@ Product spec approved - round 7 - 2026-05-09
 Product spec approved - round 8 - 2026-05-09
 Product spec approved - round 9 - 2026-05-09
 Product spec approved - round 10 - 2026-05-09
+Product spec approved - round 11 - 2026-05-09
 
 ## Problem
 Users with multiple AWS SSO profiles lose active sessions during normal work and must manually run `aws sso login` per profile. This tool should run as a tray-only Linux/Wayland desktop app, monitor SSO session validity, and perform controlled auto-login when an SSO session is explicitly expired or invalid.
@@ -101,6 +102,17 @@ Trade-offs: Powerful and flexible, but introduces additional integration complex
 Implement Approach A. It matches current requirements with the best complexity-to-value ratio, keeps behavior explicit and testable, and leaves clear extension points for future features.
 
 ## Runtime behavior
+### Application versioning and startup logging
+- Runtime version source priority is fixed:
+  1. embedded package version generated during CI/CD or Linux package build,
+  2. fallback default version `0.0.0` when embedded metadata is unavailable.
+- Release tags used for version derivation must match `vX.X.X`.
+- Version derivation from git state uses nearest matching release tag:
+  - exact tag commit resolves to `X.Y.Z`,
+  - commits after tag resolve to `X.Y.Z.devN+g<sha>`.
+- On every application start, structured stdout logs must include startup event,
+  resolved version, and version source.
+
 ### Profile discovery and filtering
 - Discover profiles at startup from AWS CLI/config sources.
 - Keep only profiles that are SSO-capable.

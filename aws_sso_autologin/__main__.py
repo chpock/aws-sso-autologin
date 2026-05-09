@@ -26,6 +26,7 @@ from aws_sso_autologin.models import (
 )
 from aws_sso_autologin.aws import discover_profiles
 from aws_sso_autologin.logger import get_logger
+from aws_sso_autologin import __version__, VERSION_SOURCE
 
 logger = get_logger(__name__)
 
@@ -642,6 +643,15 @@ def main(args: Optional[List[str]] = None) -> int:
         Exit code
     """
     app = AutologinApp(args)
+
+    logger.info(
+        "Application startup",
+        extra={
+            "event": "app_started",
+            "version": __version__,
+            "source": VERSION_SOURCE,
+        },
+    )
     
     try:
         return app.run()

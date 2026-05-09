@@ -14,6 +14,7 @@ UX spec approved - round 7 - 2026-05-09
 UX spec approved - round 8 - 2026-05-09
 UX spec approved - round 9 - 2026-05-09
 UX spec approved - round 10 - 2026-05-09
+UX spec approved - round 11 - 2026-05-09
 Design-interrogation pass complete - round 1 - 2026-05-09
 
 ## Design-interrogation notes
@@ -53,10 +54,11 @@ Per human partner decision: **document UX limitations as V1 constraints and proc
 ## User flows
 ### Flow 1 - Startup and healthy monitoring
 1. App launches with auto-login monitoring enabled by default, unless safe mode is active via startup env/config override.
-2. Tray icon appears in enabled state.
-3. App discovers SSO profiles and starts 30-second checks.
-4. Menu shows control row, profile rows with healthy text, and quit action.
-5. Profile rows display `Profile: <name> - OK, last refresh: <duration>` when checks succeed.
+2. App writes startup version event to structured stdout logs with `version` and `source` fields.
+3. Tray icon appears in enabled state.
+4. App discovers SSO profiles and starts 30-second checks.
+5. Menu shows control row, profile rows with healthy text, and quit action.
+6. Profile rows display `Profile: <name> - OK, last refresh: <duration>` when checks succeed.
 
 Failure path: if tray-host preflight fails (no compatible StatusNotifier/system tray host), no tray icon/menu/dialog is shown, app exits non-zero, and one actionable stdout message explains tray host support is required. If startup succeeds but one or more profiles fail checks, those profile rows show Warning or Error status and become actionable for diagnostics.
 
@@ -151,6 +153,7 @@ Reference strings:
 - Error: `Auto-login failed for profile "<name>". Click to view full diagnostics.`
 - Success: `Profile: <name> - OK, last refresh: <duration>`
 - Empty state: `No SSO profiles detected. Monitoring profile sources for changes.`
+- Startup version event: `event=app_started version=<X.Y.Z> source=<embedded|default>`
 - Global compatibility error: `AWS CLI v2 is required. Current version is unsupported.`
 - Global trust error: `Configuration file is not trusted. Fix ownership, permissions, or symlink path and retry.`
 - Governance gate error: `Release gate blocked: classifier governance incomplete. Complete governance checks and retry.`

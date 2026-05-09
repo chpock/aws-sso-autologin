@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aws-sso-autologin"
-version = "1.0.0"
+dynamic = ["version"]
 description = "System tray app for automatic AWS SSO session refresh"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -38,6 +38,9 @@ aws-sso-autologin = "aws_sso_autologin.__main__:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["aws_sso_autologin*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "aws_sso_autologin.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

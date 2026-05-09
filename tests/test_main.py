@@ -335,6 +335,28 @@ def test_main_function():
         mock_app.run.assert_called_once()
 
 
+def test_main_logs_app_version_on_startup():
+    from aws_sso_autologin.__main__ import main
+
+    with patch("aws_sso_autologin.__main__.__version__", "2.3.4"):
+        with patch("aws_sso_autologin.__main__.VERSION_SOURCE", "embedded"):
+            with patch("aws_sso_autologin.__main__.AutologinApp") as mock_app_class:
+                with patch("aws_sso_autologin.__main__.logger.info") as mock_info:
+                    mock_app = Mock()
+                    mock_app.run.return_value = 0
+                    mock_app_class.return_value = mock_app
+
+                    result = main()
+
+    assert result == 0
+    assert any(
+        call.kwargs.get("extra", {}).get("event") == "app_started"
+        and call.kwargs.get("extra", {}).get("version") == "2.3.4"
+        and call.kwargs.get("extra", {}).get("source") == "embedded"
+        for call in mock_info.call_args_list
+    )
+
+
 def test_run_continues_when_profiles_do_not_load():
     from aws_sso_autologin.__main__ import AutologinApp
 
