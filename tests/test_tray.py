@@ -309,6 +309,7 @@ def test_error_details_dialog_text_contains_all_sections(qapp):
     dialog = ErrorDetailsDialog.from_text(
         summary="AWS CLI unavailable",
         details=(
+            "Command executed: true\n"
             "Command: sts_check\n"
             "Exit code: 1\n"
             "stderr: error message"
@@ -353,6 +354,28 @@ def test_error_details_dialog_hides_command_fields_when_not_executed(qapp):
         summary="Connectivity issue",
         details=(
             "Command executed: false\n"
+            "Command: sts_check\n"
+            "Exit code: 1\n"
+            "stderr: failed\n"
+            "stdout: output\n"
+            "Timestamp: 2026-05-09T12:00:00Z"
+        ),
+    )
+
+    text = dialog._text_edit.toPlainText()
+    assert "Summary: Connectivity issue" in text
+    assert "Timestamp: 2026-05-09T12:00:00Z" in text
+    assert "Command:" not in text
+    assert "Exit code:" not in text
+    assert "stderr:" not in text
+    assert "stdout:" not in text
+    dialog.close()
+
+
+def test_error_details_dialog_hides_command_fields_when_execution_unknown(qapp):
+    dialog = ErrorDetailsDialog.from_text(
+        summary="Connectivity issue",
+        details=(
             "Command: sts_check\n"
             "Exit code: 1\n"
             "stderr: failed\n"

@@ -330,12 +330,6 @@ class ErrorDetailsDialog(QDialog):
                 sections["stdout"] = stdout
             else:
                 sections["stdout"] = ""
-        elif command_executed is None:
-            sections["Command"] = raw_sections["Command"]
-            sections["Exit code"] = raw_sections["Exit code"]
-            sections["stderr"] = raw_sections["stderr"]
-            sections["stdout"] = raw_sections["stdout"]
-
         if raw_sections["Timestamp"]:
             sections["Timestamp"] = raw_sections["Timestamp"]
 
