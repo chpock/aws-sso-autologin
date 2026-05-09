@@ -774,3 +774,38 @@ tests/test_watchdog.py ..........                                        [100%]
 
 ============================= 199 passed in 4.30s ===============================
 ```
+
+## User-reported issue fix - 2026-05-10
+
+### Issue
+When no SSO profiles were detected, the error dialog showed confusing messages:
+- "Unknown execution state"
+- "Incident evidence unavailable: retention window exceeded"
+- "Command: unknown"
+- "Exit code: unknown"
+
+These messages were inappropriate for a configuration state (no profiles configured) rather than a command execution failure.
+
+### Root Cause
+The `ErrorDetailsDialog.from_text()` method always defaulted to command-execution error display, showing "Unknown execution state" when `command_executed` was `None`, and always including "Incident evidence" field.
+
+### Fix
+1. Added `is_config_error` parameter to `ErrorDetailsDialog.from_text()` to distinguish configuration errors from command execution errors
+2. For configuration errors:
+   - Shows summary as the header title instead of "Unknown execution state"
+   - Displays only Summary and Context sections (no Command, Exit code, Incident evidence)
+   - Provides clear, actionable messaging
+3. Updated `StatusTray.set_global_error()` and `_emit_diagnostics()` to support `is_config_error` flag
+4. Updated `AutologinApp._set_tray_global_error()` in `__main__.py` to pass `is_config_error=True` for "No SSO profiles detected" error
+5. Improved error message to: "No SSO profiles found in AWS config. Add a profile with sso_start_url to enable auto-login."
+
+### Files Changed
+- `aws_sso_autologin/tray.py`: Added `is_config_error` support to `ErrorDetailsDialog` and `StatusTray`
+- `aws_sso_autologin/__main__.py`: Updated error handling for no profiles scenario
+- `docs/leyline/design/2026-05-09-aws-sso-autologin-ux.md`: Updated state matrix to document configuration error display
+- `tests/test_tray.py`: Added tests for configuration error dialog behavior
+
+### Verification
+- All 223 tests pass
+- New tests verify: no "Unknown execution state" header, no incident evidence, no command/exit code fields for config errors
+- UX spec updated and approved (round 12)

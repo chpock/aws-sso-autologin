@@ -296,10 +296,14 @@ class AutologinApp:
 
         logger.error("Tray host lost; monitoring paused")
 
-    def _set_tray_global_error(self, summary: str, details: str, source: str) -> None:
+    def _set_tray_global_error(
+        self, summary: str, details: str, source: str, is_config_error: bool = False
+    ) -> None:
         if self._tray is None:
             return
-        self._tray.set_global_error(summary=summary, details=details)
+        self._tray.set_global_error(
+            summary=summary, details=details, is_config_error=is_config_error
+        )
         self._global_error_source = source
 
     def _clear_tray_global_error_if_source(self, source: str) -> None:
@@ -453,19 +457,20 @@ class AutologinApp:
         if self._tray is not None:
             self._tray.set_syncing(False)
 
-    def _on_show_diagnostics(self, summary: str, details: str) -> None:
+    def _on_show_diagnostics(self, summary: str, details: str, is_config_error: bool = False) -> None:
         """Handle diagnostics action from tray menu."""
         logger.error("Diagnostics requested: %s", summary)
         if details:
             logger.debug("Diagnostics details: %s", details)
 
-        logger.info("Creating ErrorDetailsDialog for summary: %s", summary)
+        logger.info("Creating ErrorDetailsDialog for summary: %s (config_error=%s)", summary, is_config_error)
         try:
             # Show the error details dialog to the user
             self._details_dialog = ErrorDetailsDialog.from_text(
                 summary=summary,
                 details=details,
                 parent=self._app.activeWindow() if self._app else None,
+                is_config_error=is_config_error,
             )
             logger.info("ErrorDetailsDialog created, showing dialog...")
             self._details_dialog.exec()
@@ -579,8 +584,9 @@ class AutologinApp:
         if not self._load_profiles():
             self._set_tray_global_error(
                 summary=NO_PROFILES_SUMMARY,
-                details="No SSO profiles detected. Monitoring profile sources for changes.",
+                details="No SSO profiles found in AWS config. Add a profile with sso_start_url to enable auto-login.",
                 source="startup-no-profiles",
+                is_config_error=True,
             )
             logger.warning("No SSO profiles loaded; continuing in empty-state mode")
 

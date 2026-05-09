@@ -226,6 +226,7 @@ class ErrorDetailsDialog(QDialog):
         sections: dict[str, str],
         parent: Optional[QWidget] = None,
         command_executed: Optional[bool] = None,
+        is_config_error: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("AWS SSO Autologin Diagnostics")
@@ -233,6 +234,7 @@ class ErrorDetailsDialog(QDialog):
         self.section_order = list(self.SECTION_ORDER)
         self.sections = dict(sections)
         self._command_executed = command_executed
+        self._is_config_error = is_config_error
 
         # Set window flags for floating behavior across all compositors
         # WindowStaysOnTopHint makes it float above other windows
@@ -294,7 +296,12 @@ class ErrorDetailsDialog(QDialog):
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        if self._command_executed is None:
+        if self._is_config_error:
+            # Configuration errors show simple header with summary as title
+            status_title = QLabel(self.sections.get("Summary", "Configuration Issue"))
+            status_title.setStyleSheet("font-weight: bold; font-size: 14px; padding: 4px 0;")
+            layout.addWidget(status_title)
+        elif self._command_executed is None:
             # Unknown execution state copy contract per UX spec lines 132-134
             status_title = QLabel("Unknown execution state")
             status_title.setStyleSheet("font-weight: bold; font-size: 14px; padding: 4px 0;")
@@ -328,11 +335,18 @@ class ErrorDetailsDialog(QDialog):
     def _format_sections(self, sections: dict[str, str]) -> str:
         """Format sections into a single text block for display and copying."""
         lines = []
+        processed = set()
+        # First, process sections in defined order
         for section in self.section_order:
             if section not in sections:
                 continue
             value = sections[section]
             lines.append(f"{section}: {value}")
+            processed.add(section)
+        # Then add any remaining sections not in the standard order
+        for section, value in sections.items():
+            if section not in processed:
+                lines.append(f"{section}: {value}")
         return "\n\n".join(lines)
 
     def _on_copy_all_details(self) -> None:
@@ -403,7 +417,16 @@ class ErrorDetailsDialog(QDialog):
         summary: str,
         details: str,
         parent: Optional[QWidget] = None,
+        is_config_error: bool = False,
     ) -> "ErrorDetailsDialog":
+        # Configuration errors show simple, clear messaging without command-related fields
+        if is_config_error:
+            sections: dict[str, str] = {"Summary": summary}
+            # Include details as helpful context if provided and different from summary
+            if details and details.strip() != summary.strip():
+                sections["Context"] = details.strip()
+            return cls(sections=sections, parent=parent, is_config_error=True)
+
         raw_sections = {
             "Summary": summary,
             "Incident evidence": "Incident evidence unavailable: retention window exceeded.",
@@ -442,7 +465,7 @@ class ErrorDetailsDialog(QDialog):
                 continue
             raw_sections[section] = value.strip()
 
-        sections: dict[str, str] = {"Summary": raw_sections["Summary"]}
+        sections = {"Summary": raw_sections["Summary"]}
 
         if raw_sections["Incident evidence"]:
             sections["Incident evidence"] = raw_sections["Incident evidence"]
@@ -499,6 +522,7 @@ class StatusTray:
         self._is_syncing = False
         self._global_error_summary: Optional[str] = None
         self._global_error_details: str = ""
+        self._global_error_is_config: bool = False
         self._ok_count = 0
         self._status_window: Optional[StatusWindowProxy] = None
         self._details_dialog: Optional[ErrorDetailsDialog] = None
@@ -540,10 +564,13 @@ class StatusTray:
         self._update_icon_state()
         self._throttled_tooltip_update()
 
-    def set_global_error(self, summary: Optional[str], details: str = "") -> None:
+    def set_global_error(
+        self, summary: Optional[str], details: str = "", is_config_error: bool = False
+    ) -> None:
         """Set or clear first-row global error action state."""
         self._global_error_summary = summary
         self._global_error_details = details
+        self._global_error_is_config = is_config_error
         self._rebuild_menu()
         self._update_icon_state()
         self._throttled_tooltip_update()
@@ -640,6 +667,7 @@ class StatusTray:
             self._emit_diagnostics(
                 self._global_error_summary,
                 self._global_error_details or "No diagnostics available.",
+                is_config_error=self._global_error_is_config,
             )
             return
 
@@ -713,15 +741,18 @@ class StatusTray:
         if self._on_quit is not None:
             self._on_quit()
 
-    def _emit_diagnostics(self, summary: str, details: str) -> None:
+    def _emit_diagnostics(
+        self, summary: str, details: str, is_config_error: bool = False
+    ) -> None:
         if self._on_show_diagnostics is not None:
-            self._on_show_diagnostics(summary, details)
+            self._on_show_diagnostics(summary, details, is_config_error)
             return
 
         self._details_dialog = ErrorDetailsDialog.from_text(
             summary=summary,
             details=details,
             parent=self._parent,
+            is_config_error=is_config_error,
         )
         self._details_dialog.show()
 

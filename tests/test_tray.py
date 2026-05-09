@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 
 from aws_sso_autologin.constants import MAX_PROFILES_IN_ROOT_MENU, MAX_SUBMENU_PROFILES
 from aws_sso_autologin.tray import (
@@ -676,3 +676,45 @@ def test_error_details_dialog_close_only_hides_dialog(qapp):
     dialog.show()
     dialog._on_close()
     assert dialog.isVisible() is False
+
+
+def test_error_details_dialog_config_error_shows_clear_message(qapp):
+    """Configuration errors (like No SSO profiles) should show clear message without command-related fields."""
+    dialog = ErrorDetailsDialog.from_text(
+        summary="No SSO profiles detected",
+        details="No SSO profiles detected. Monitoring profile sources for changes.",
+        is_config_error=True,
+    )
+
+    # Should NOT show "Unknown execution state" header for config errors
+    # Check that status header contains appropriate title
+    header_text = dialog._status_header.findChild(QLabel).text()
+    assert "Diagnostics" in header_text or "No SSO profiles" in header_text
+    assert "Unknown execution state" not in header_text
+
+    # Should NOT contain confusing command-related fields
+    text = dialog._text_edit.toPlainText()
+    assert "Summary: No SSO profiles detected" in text
+    assert "Incident evidence" not in text
+    assert "Command:" not in text
+    assert "Exit code:" not in text
+    assert "retention window exceeded" not in text
+
+    dialog.close()
+
+
+def test_error_details_dialog_config_error_shows_helpful_context(qapp):
+    """Configuration error dialog should show helpful context from details."""
+    dialog = ErrorDetailsDialog.from_text(
+        summary="No SSO profiles detected",
+        details="No profiles with SSO configuration found in ~/.aws/config. Add an SSO-enabled profile to enable auto-login.",
+        is_config_error=True,
+    )
+
+    text = dialog._text_edit.toPlainText()
+    # Should show the helpful context
+    assert "No SSO profiles detected" in text
+    assert "Context:" in text
+    assert "Add an SSO-enabled profile" in text
+
+    dialog.close()
