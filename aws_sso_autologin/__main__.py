@@ -17,7 +17,12 @@ from aws_sso_autologin.service import (
 )
 from aws_sso_autologin.tray import ProfileState, ProfileStatus, StatusTray
 from aws_sso_autologin.operator import HealthOperator, SessionOperator, LoginOperator
-from aws_sso_autologin.models import ProfileConfig
+from aws_sso_autologin.models import (
+    ProfileConfig,
+    RenewalStatus,
+    SessionFailureType,
+    SessionInfo,
+)
 from aws_sso_autologin.aws import discover_profiles
 from aws_sso_autologin.logger import get_logger
 
@@ -218,7 +223,82 @@ class AutologinApp:
             self._health_operator.set_status_callback(self._on_status_change)
             logger.debug("AutologinApp: Signals wired")
     
-    def _on_status_change(self, profile_name: str, is_healthy: bool) -> None:
+    def _build_diagnostics_details(self, status: SessionInfo) -> str:
+        message = status.error_message or "Session status unavailable"
+        return "\n".join(
+            [
+                "Incident evidence: Session check result",
+                "Command: aws sts get-caller-identity --profile <name>",
+                f"Exit code: {'0' if status.is_active else 'non-zero'}",
+                f"stderr: {message}",
+                "stdout:",
+                f"Timestamp: {datetime.now().isoformat(timespec='seconds')}",
+            ]
+        )
+
+    def _status_from_session(
+        self,
+        profile_name: str,
+        renewal_status: RenewalStatus,
+        session_info: SessionInfo,
+    ) -> ProfileStatus:
+        if session_info.is_active:
+            if session_info.seconds_remaining is None:
+                return ProfileStatus(
+                    profile_name=profile_name,
+                    state=ProfileState.WARNING,
+                    short_reason="Session remaining time unavailable",
+                    diagnostics_summary="Session status warning",
+                    diagnostics_details=self._build_diagnostics_details(session_info),
+                )
+
+            return ProfileStatus(
+                profile_name=profile_name,
+                state=ProfileState.OK,
+                short_reason=None,
+                last_login_time=datetime.now(),
+            )
+
+        if (
+            renewal_status == RenewalStatus.TRIGGERED
+            or session_info.failure_type == SessionFailureType.EXPIRED_OR_INVALID
+        ):
+            return ProfileStatus(
+                profile_name=profile_name,
+                state=ProfileState.SYNCING,
+                short_reason="Re-authentication in progress",
+                diagnostics_summary="Session expired or invalid",
+                diagnostics_details=self._build_diagnostics_details(session_info),
+            )
+
+        if session_info.failure_type in (
+            SessionFailureType.TIMEOUT,
+            SessionFailureType.OTHER,
+        ):
+            reason = session_info.error_message or "Connectivity issue"
+            return ProfileStatus(
+                profile_name=profile_name,
+                state=ProfileState.WARNING,
+                short_reason=reason,
+                diagnostics_summary="Connectivity warning",
+                diagnostics_details=self._build_diagnostics_details(session_info),
+            )
+
+        reason = session_info.error_message or "Session check failed"
+        return ProfileStatus(
+            profile_name=profile_name,
+            state=ProfileState.ERROR,
+            short_reason=reason,
+            diagnostics_summary="Session check error",
+            diagnostics_details=self._build_diagnostics_details(session_info),
+        )
+
+    def _on_status_change(
+        self,
+        profile_name: str,
+        renewal_status: RenewalStatus,
+        session_info: SessionInfo,
+    ) -> None:
         """Handle profile status changes.
         
         Args:
@@ -226,18 +306,21 @@ class AutologinApp:
             is_healthy: True if the profile is healthy, False otherwise
         """
         if self._tray:
-            # Create status update for tray
-            status = ProfileStatus(
+            status = self._status_from_session(
                 profile_name=profile_name,
-                state=ProfileState.OK if is_healthy else ProfileState.WARNING,
-                short_reason=None if is_healthy else "Connectivity issue",
-                last_login_time=datetime.now() if is_healthy else None,
+                renewal_status=renewal_status,
+                session_info=session_info,
             )
             self._tray.update_profile(status)
             if self._awaiting_initial_status:
                 self._tray.set_syncing(False)
                 self._awaiting_initial_status = False
-            logger.debug(f"AutologinApp: Status updated for {profile_name}: healthy={is_healthy}")
+            logger.debug(
+                "AutologinApp: Status updated for %s: renewal=%s failure_type=%s",
+                profile_name,
+                renewal_status.value,
+                session_info.failure_type.value,
+            )
 
     def _on_toggle_monitoring(self, enabled: bool) -> None:
         """Handle first-row enable/disable action from tray menu."""

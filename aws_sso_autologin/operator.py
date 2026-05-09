@@ -1,6 +1,5 @@
 """Operator classes for managing SSO session lifecycle."""
 
-import logging
 import threading
 import time
 from collections.abc import Callable
@@ -16,9 +15,15 @@ from aws_sso_autologin.constants import (
 )
 from aws_sso_autologin.checker import SessionChecker
 from aws_sso_autologin.cli import CLIExecutor
-from aws_sso_autologin.models import ProfileConfig, RenewalStatus, SessionFailureType
+from aws_sso_autologin.models import (
+    ProfileConfig,
+    RenewalStatus,
+    SessionFailureType,
+    SessionInfo,
+)
+from aws_sso_autologin.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class LoginStatus(Enum):
     """Status of a login operation."""
@@ -250,6 +255,14 @@ class SessionOperator:
             Status of the renewal check.
         """
         info = self._checker.get_session_info(profile)
+        return self.check_and_renew_with_info(profile, info)
+
+    def check_and_renew_with_info(
+        self,
+        profile: ProfileConfig,
+        info: SessionInfo,
+    ) -> RenewalStatus:
+        """Check session and trigger renewal using pre-fetched session info."""
 
         if not info.is_active:
             if info.failure_type == SessionFailureType.EXPIRED_OR_INVALID:
@@ -326,7 +339,9 @@ class HealthOperator:
         self._last_heartbeat: float = time.time()
         self._running = False
         self._monitor_thread: Optional[threading.Thread] = None
-        self._on_status_change: Optional[Callable[[str, bool], None]] = None
+        self._on_status_change: Optional[
+            Callable[[str, RenewalStatus, SessionInfo], None]
+        ] = None
 
     def register_profiles(self, profiles: list[ProfileConfig]) -> None:
         """Register profiles to monitor.
@@ -336,11 +351,14 @@ class HealthOperator:
         """
         self._profiles = profiles
 
-    def set_status_callback(self, callback: Callable[[str, bool], None]) -> None:
+    def set_status_callback(
+        self,
+        callback: Callable[[str, RenewalStatus, SessionInfo], None],
+    ) -> None:
         """Set callback for status changes.
 
         Args:
-            callback: Function called with (profile_name, is_healthy) on changes.
+            callback: Function called with (profile_name, renewal_status, session_info).
         """
         self._on_status_change = callback
 
@@ -378,16 +396,27 @@ class HealthOperator:
         """Check health of all registered profiles."""
         for profile in self._profiles:
             try:
-                status = self._session_operator.check_and_renew(profile)
-                is_healthy = status in (RenewalStatus.NOT_NEEDED, RenewalStatus.TRIGGERED)
+                info = self._checker.get_session_info(profile)
+                status = self._session_operator.check_and_renew_with_info(profile, info)
 
                 if self._on_status_change:
-                    self._on_status_change(profile.name, is_healthy)
+                    self._on_status_change(profile.name, status, info)
 
             except Exception as e:
                 logger.error(f"Error checking profile {profile.name}: {e}")
                 if self._on_status_change:
-                    self._on_status_change(profile.name, False)
+                    fallback_info = SessionInfo(
+                        profile_name=profile.name,
+                        is_active=False,
+                        seconds_remaining=None,
+                        failure_type=SessionFailureType.CHECK_ERROR,
+                        error_message=str(e),
+                    )
+                    self._on_status_change(
+                        profile.name,
+                        RenewalStatus.UNKNOWN,
+                        fallback_info,
+                    )
 
     def _update_heartbeat(self) -> None:
         """Update the heartbeat timestamp."""

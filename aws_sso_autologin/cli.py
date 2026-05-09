@@ -1,13 +1,13 @@
 """CLI executor for AWS SSO commands."""
 
-import logging
 import subprocess
 from typing import Optional
 
 from aws_sso_autologin.aws import run_sso_login
 from aws_sso_autologin.constants import SSO_LOGIN_TIMEOUT_SECONDS
+from aws_sso_autologin.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class CLIExecutor:

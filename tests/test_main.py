@@ -93,14 +93,91 @@ def test_autologin_app_wire_signals():
 
 def test_autologin_app_on_status_change():
     from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.models import RenewalStatus, SessionFailureType, SessionInfo
+
     app = AutologinApp()
     
     app._tray = Mock()
     app._profiles = []
     
     with patch("aws_sso_autologin.__main__.ProfileStatus") as mock_status:
-        app._on_status_change("test-profile", True)
+        info = SessionInfo(
+            profile_name="test-profile",
+            is_active=True,
+            seconds_remaining=300,
+            failure_type=SessionFailureType.NONE,
+        )
+        app._on_status_change("test-profile", RenewalStatus.NOT_NEEDED, info)
         mock_status.assert_called_once()
+
+
+def test_on_status_change_expired_invalid_sets_syncing_state():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.models import RenewalStatus, SessionFailureType, SessionInfo
+    from aws_sso_autologin.tray import ProfileState
+
+    app = AutologinApp()
+    app._tray = Mock()
+
+    info = SessionInfo(
+        profile_name="test-profile",
+        is_active=False,
+        seconds_remaining=0,
+        failure_type=SessionFailureType.EXPIRED_OR_INVALID,
+        error_message="The SSO session has expired",
+    )
+
+    app._on_status_change("test-profile", RenewalStatus.TRIGGERED, info)
+
+    status = app._tray.update_profile.call_args.args[0]
+    assert status.state == ProfileState.SYNCING
+    assert status.diagnostics_summary == "Session expired or invalid"
+
+
+def test_on_status_change_timeout_sets_warning_state():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.models import RenewalStatus, SessionFailureType, SessionInfo
+    from aws_sso_autologin.tray import ProfileState
+
+    app = AutologinApp()
+    app._tray = Mock()
+
+    info = SessionInfo(
+        profile_name="test-profile",
+        is_active=False,
+        seconds_remaining=0,
+        failure_type=SessionFailureType.TIMEOUT,
+        error_message="Command timed out",
+    )
+
+    app._on_status_change("test-profile", RenewalStatus.UNKNOWN, info)
+
+    status = app._tray.update_profile.call_args.args[0]
+    assert status.state == ProfileState.WARNING
+    assert status.short_reason == "Command timed out"
+
+
+def test_on_status_change_check_error_sets_error_state():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.models import RenewalStatus, SessionFailureType, SessionInfo
+    from aws_sso_autologin.tray import ProfileState
+
+    app = AutologinApp()
+    app._tray = Mock()
+
+    info = SessionInfo(
+        profile_name="test-profile",
+        is_active=False,
+        seconds_remaining=None,
+        failure_type=SessionFailureType.CHECK_ERROR,
+        error_message="subprocess failure",
+    )
+
+    app._on_status_change("test-profile", RenewalStatus.UNKNOWN, info)
+
+    status = app._tray.update_profile.call_args.args[0]
+    assert status.state == ProfileState.ERROR
+    assert status.short_reason == "subprocess failure"
 
 
 def test_autologin_app_load_profiles_empty():
@@ -252,6 +329,7 @@ def test_tray_host_recovery_does_not_clear_unrelated_global_error():
 
 def test_load_profiles_sets_syncing_until_first_status_update():
     from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.models import RenewalStatus, SessionFailureType, SessionInfo
 
     app = AutologinApp([])
     app._tray = Mock()
@@ -269,6 +347,12 @@ def test_load_profiles_sets_syncing_until_first_status_update():
     app._tray.set_syncing.assert_called_once_with(True)
     assert app._awaiting_initial_status is True
 
-    app._on_status_change("example", True)
+    info = SessionInfo(
+        profile_name="example",
+        is_active=True,
+        seconds_remaining=300,
+        failure_type=SessionFailureType.NONE,
+    )
+    app._on_status_change("example", RenewalStatus.NOT_NEEDED, info)
     assert app._awaiting_initial_status is False
     app._tray.set_syncing.assert_called_with(False)

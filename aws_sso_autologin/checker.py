@@ -1,12 +1,12 @@
 """Session checker for AWS SSO."""
 
-import logging
 from typing import Optional
 
 from aws_sso_autologin.aws import _run_subprocess_with_escalation
+from aws_sso_autologin.logger import get_logger
 from aws_sso_autologin.models import ProfileConfig, SessionFailureType, SessionInfo
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class SessionChecker:
