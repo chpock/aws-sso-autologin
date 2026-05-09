@@ -683,5 +683,39 @@ all tests passed
 - Design review range: `5fd6c44..69a3578`
 - Result: no unresolved Critical/Important findings remain in either review stream.
 
+## Systematic-debugging record - CLI --help behavior
+
+### Record - --help flag starts application
+- Root cause (one sentence, plain English): When using `standalone_mode=False`, typer doesn't exit after showing `--help`, causing the application to start.
+- Falsifying test: `pytest tests/test_main.py::test_main_help_exits_without_starting_app -v` failed with `AutologinApp` being instantiated after help display.
+- Hypothesis: If we check for `--help` in raw_args before invoking application logic and return 0 after showing help, the application will not start.
+- Fix: Added early check for `--help` in `main()` before application startup; typer shows help and returns 0 immediately.
+- Regression coverage: `pytest tests/test_main.py -q` (all pass).
+
+### Post-implementation verification output
+
+```
+$ timeout 2 .venv/bin/python -m aws_sso_autologin --help 2>&1; echo "Exit code: $?"
+
+ Usage: python -m aws_sso_autologin [OPTIONS] COMMAND [ARGS]...
+
+ AWS SSO tray autologin
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --version             -V            Show app version and exit                │
+│ --log-level                   TEXT  Log level                                │
+│ --log-format                  TEXT  Log format                               │
+│ --safe-mode                         Start paused                             │
+│ --tray-loss-behavior          TEXT  Tray-loss behavior                       │
+│ --check-only                        Run preflight only                       │
+│ --profiles                    TEXT  Comma-separated profiles                 │
+│ --help                              Show this message and exit.              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+Exit code: 0
+```
+
+- Full test suite: `pytest` - 197 passed
+
 Code review complete - round 4 - 2026-05-09
 Design review complete - round 3 - 2026-05-09

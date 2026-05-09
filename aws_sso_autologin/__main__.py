@@ -822,6 +822,18 @@ def main(args: Optional[List[str]] = None) -> int:
         Exit code
     """
     raw_args = list(args) if args is not None else sys.argv[1:]
+
+    # Handle --help early to avoid starting the application
+    # (typer with standalone_mode=False doesn't auto-exit after showing help)
+    if "--help" in raw_args or "-h" in raw_args:
+        cli_state: dict[str, Any] = {}
+        cli_app = _build_cli_app(cli_state)
+        try:
+            cli_app(standalone_mode=False, args=raw_args)
+        except typer.Exit:
+            pass
+        return 0
+
     cli_state: dict[str, Any] = {}
     cli_app = _build_cli_app(cli_state)
 

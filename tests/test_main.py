@@ -394,6 +394,23 @@ def test_main_returns_2_for_invalid_log_format():
     assert "Invalid log format" in stderr.getvalue()
 
 
+def test_main_help_exits_without_starting_app():
+    """Test that --help shows help and exits without starting the application."""
+    from aws_sso_autologin.__main__ import main
+
+    with patch("sys.stdout", new_callable=StringIO) as stdout:
+        with patch("aws_sso_autologin.__main__.AutologinApp") as mock_app_class:
+            result = main(["--help"])
+
+    # Should exit cleanly
+    assert result == 0
+    # Should show help
+    assert "Usage:" in stdout.getvalue()
+    assert "AWS SSO tray autologin" in stdout.getvalue()
+    # Should NOT start the application
+    mock_app_class.assert_not_called()
+
+
 def test_run_continues_when_profiles_do_not_load():
     from aws_sso_autologin.__main__ import AutologinApp
 
