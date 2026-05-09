@@ -30,7 +30,7 @@ test-verbose: venv
 	@"$(PYTEST)" -v
 
 run: venv
-	@"$(PYTHON)" -m aws_sso_autologin
+	@"$(PYTHON)" -m aws_sso_autologin --log-level debug
 
 lint: venv
 	@printf "No linter configured yet.\n"
