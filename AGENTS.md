@@ -30,6 +30,9 @@
 - `make lint` is a placeholder message only (no linter configured).
 - `.gitignore` still contains legacy Go-oriented patterns; do not infer Go tooling from it.
 
+## Git workflow convention
+- Use Conventional Commits format for all git commit messages (for example: `feat: ...`, `fix: ...`, `docs: ...`, `chore: ...`).
+
 ## Project state from session history
 - Main branch already contains the full tray app feature merge (`621603a Merge aws-sso-autologin`).
 - Branch-level review closure is recorded in `docs/leyline/plans/2026-05-09-aws-sso-autologin-review-log.md`:
