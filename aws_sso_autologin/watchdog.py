@@ -200,7 +200,7 @@ class AutomationWatchdog:
     def _emit_timeout_event(self, elapsed: float) -> None:
         """Emit structured timeout event for observability."""
         logger.error(
-            "event=agent_watchdog_timeout exit_code=124 watchdog timeout",
+            "watchdog timeout",
             extra={
                 "event": "watchdog_timeout",
                 "timeout_s": self._timeout_seconds,

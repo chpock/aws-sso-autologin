@@ -21,7 +21,7 @@ from aws_sso_autologin.models import (
     SessionFailureType,
     SessionInfo,
 )
-from aws_sso_autologin.logger import get_logger
+from aws_sso_autologin.logger import get_logger, sanitize_trace_payload
 
 logger = get_logger(__name__)
 
@@ -173,6 +173,8 @@ class LoginOperator:
                 extra={"event": "login_processing_started", "profile": profile_name},
             )
             stdout, stderr, returncode = self._cli_executor.execute_login(profile_name)
+            stdout_payload = sanitize_trace_payload(stdout)
+            stderr_payload = sanitize_trace_payload(stderr)
             logger.log(
                 5,
                 "login execution trace",
@@ -180,8 +182,10 @@ class LoginOperator:
                     "event": "login_processing_trace",
                     "profile": profile_name,
                     "exit_code": returncode,
-                    "stdout": (stdout or "")[:2000],
-                    "stderr": (stderr or "")[:2000],
+                    "stdout": stdout_payload["value"],
+                    "stderr": stderr_payload["value"],
+                    "stdout_payload_truncated": stdout_payload["payload_truncated"],
+                    "stderr_payload_truncated": stderr_payload["payload_truncated"],
                 },
             )
 

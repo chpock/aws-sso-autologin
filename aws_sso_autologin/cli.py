@@ -5,7 +5,7 @@ from typing import Optional
 
 from aws_sso_autologin.aws import run_sso_login
 from aws_sso_autologin.constants import SSO_LOGIN_TIMEOUT_SECONDS
-from aws_sso_autologin.logger import get_logger
+from aws_sso_autologin.logger import get_logger, sanitize_trace_payload
 
 logger = get_logger(__name__)
 
@@ -82,14 +82,18 @@ class CLIExecutor:
                 text=True,
                 timeout=timeout or 30,
             )
+            stdout_payload = sanitize_trace_payload(result.stdout)
+            stderr_payload = sanitize_trace_payload(result.stderr)
             logger.log(
                 5,
                 "cli command trace",
                 extra={
                     "event": "cli_command_trace",
                     "command": command,
-                    "stdout": (result.stdout or "")[:2000],
-                    "stderr": (result.stderr or "")[:2000],
+                    "stdout": stdout_payload["value"],
+                    "stderr": stderr_payload["value"],
+                    "stdout_payload_truncated": stdout_payload["payload_truncated"],
+                    "stderr_payload_truncated": stderr_payload["payload_truncated"],
                     "exit_code": result.returncode,
                 },
             )

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, Optional
 
-from aws_sso_autologin.logger import get_logger
+from aws_sso_autologin.logger import get_logger, sanitize_trace_payload
 
 logger = get_logger(__name__)
 
@@ -252,7 +252,10 @@ def check_tray_host_available() -> bool:
         logger.warning(
             "No compatible tray host detected",
             extra={
-                "event": "tray_host_unavailable_unknown",
+                "event": "tray_host_probe_completed",
+                "status": "failed",
+                "reason": "unknown_environment",
+                "legacy_event": "tray_host_unavailable_unknown",
                 "desktop_session": os.environ.get("DESKTOP_SESSION", ""),
                 "xdg_current_desktop": os.environ.get("XDG_CURRENT_DESKTOP", ""),
                 "wayland_display": os.environ.get("WAYLAND_DISPLAY", ""),
@@ -268,7 +271,10 @@ def check_tray_host_available() -> bool:
         logger.warning(
             f"Detected desktop {info.name} does not support required tray protocols",
             extra={
-                "event": "tray_host_unavailable_protocol_mismatch",
+                "event": "tray_host_probe_completed",
+                "status": "failed",
+                "reason": "protocol_mismatch",
+                "legacy_event": "tray_host_unavailable_protocol_mismatch",
                 "detected_host": info.name,
                 "host_type": info.host_type.value,
                 "supports_status_notifier": info.supports_status_notifier,
@@ -383,14 +389,18 @@ class ConcreteTrayHost(TrayHost):
                 )
                 return True
 
+            stdout_payload = sanitize_trace_payload(result.stdout)
+            stderr_payload = sanitize_trace_payload(result.stderr)
             logger.log(
                 5,
                 "tray host ping failure detail",
                 extra={
                     "event": "tray_host_ping_trace",
                     "host": self._info.name,
-                    "stdout": (result.stdout or "")[:2000],
-                    "stderr": (result.stderr or "")[:2000],
+                    "stdout": stdout_payload["value"],
+                    "stderr": stderr_payload["value"],
+                    "stdout_payload_truncated": stdout_payload["payload_truncated"],
+                    "stderr_payload_truncated": stderr_payload["payload_truncated"],
                     "exit_code": result.returncode,
                 },
             )

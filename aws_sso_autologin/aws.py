@@ -19,7 +19,7 @@ from typing import List, NamedTuple, Optional, Tuple
 
 from aws_sso_autologin.constants import SESSION_DURATION_SECONDS
 from aws_sso_autologin.errors import AWSCliError
-from aws_sso_autologin.logger import get_logger
+from aws_sso_autologin.logger import get_logger, sanitize_trace_payload
 
 logger = get_logger(__name__)
 
@@ -50,6 +50,8 @@ def _run_subprocess_with_escalation(
 
     try:
         stdout, stderr = process.communicate(timeout=timeout)
+        stdout_payload = sanitize_trace_payload(stdout)
+        stderr_payload = sanitize_trace_payload(stderr)
         logger.log(
             5,
             "subprocess output trace",
@@ -57,8 +59,12 @@ def _run_subprocess_with_escalation(
                 "event": "subprocess_trace",
                 "command": command,
                 "exit_code": process.returncode,
-                "stdout": (stdout or "")[:2000],
-                "stderr": (stderr or "")[:2000],
+                "stdout": stdout_payload["value"],
+                "stderr": stderr_payload["value"],
+                "stdout_payload_size_bytes": stdout_payload["payload_size_bytes"],
+                "stderr_payload_size_bytes": stderr_payload["payload_size_bytes"],
+                "stdout_payload_truncated": stdout_payload["payload_truncated"],
+                "stderr_payload_truncated": stderr_payload["payload_truncated"],
             },
         )
         logger.debug(

@@ -3,7 +3,7 @@
 from typing import Optional
 
 from aws_sso_autologin.aws import _run_subprocess_with_escalation
-from aws_sso_autologin.logger import get_logger
+from aws_sso_autologin.logger import get_logger, sanitize_trace_payload
 from aws_sso_autologin.models import ProfileConfig, SessionFailureType, SessionInfo
 
 logger = get_logger(__name__)
@@ -41,6 +41,8 @@ class SessionChecker:
             )
 
             is_active = returncode == 0
+            stdout_payload = sanitize_trace_payload(stdout)
+            stderr_payload = sanitize_trace_payload(stderr)
             logger.log(
                 5,
                 "session check command result",
@@ -48,8 +50,10 @@ class SessionChecker:
                     "event": "session_check_trace",
                     "profile": profile.name,
                     "exit_code": returncode,
-                    "stdout": (stdout or "")[:2000],
-                    "stderr": (stderr or "")[:2000],
+                    "stdout": stdout_payload["value"],
+                    "stderr": stderr_payload["value"],
+                    "stdout_payload_truncated": stdout_payload["payload_truncated"],
+                    "stderr_payload_truncated": stderr_payload["payload_truncated"],
                 },
             )
 
