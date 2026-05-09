@@ -75,3 +75,15 @@
 ## Minimum verification before claiming done
 - Run targeted tests for changed modules plus `make test` before completion claims.
 - For tray-host/startup issues, include `make run` output with structured `event=` logs in your notes; those logs are part of the diagnostic contract.
+
+## Logging requirements
+- All application actions must be thoroughly logged using appropriate log levels based on message importance (from `trace` to `error`).
+- All external interactions (command execution, HTTP requests, IPC calls, etc.) must be logged.
+- Full details of external interactions (request/response bodies, headers, command output, exit codes, etc.) must be available at `trace` log level.
+- Use structured logging with key-value pairs (e.g., `event=auth_flow_started`, `duration_ms=150`) to enable filtering and aggregation.
+- Prefer explicit log levels:
+  - `trace` - detailed external interaction payloads, function entry/exit with arguments
+  - `debug` - internal state changes, configuration values, flow decisions
+  - `info` - major lifecycle events, user-visible operations
+  - `warn` - recoverable issues, deprecated usage, retries
+  - `error` - failures that prevent operation completion
