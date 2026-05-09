@@ -217,12 +217,18 @@ class ErrorDetailsDialog(QDialog):
         "Timestamp",
     ]
 
-    def __init__(self, sections: dict[str, str], parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        sections: dict[str, str],
+        parent: Optional[QWidget] = None,
+        command_executed: Optional[bool] = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("AWS SSO Autologin Diagnostics")
         self.setFixedSize(760, 480)
         self.section_order = list(self.SECTION_ORDER)
         self.sections = dict(sections)
+        self._command_executed = command_executed
 
         # Set window flags for floating behavior across all compositors
         # WindowStaysOnTopHint makes it float above other windows
@@ -236,6 +242,25 @@ class ErrorDetailsDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
+        # Status header region per UX spec
+        if command_executed is None:
+            # Unknown execution state copy contract per UX spec lines 132-134
+            status_title = QLabel("Unknown execution state")
+            status_title.setStyleSheet("font-weight: bold; font-size: 14px; padding: 4px 0;")
+            layout.addWidget(status_title)
+
+            status_subtitle = QLabel(
+                "Diagnostics are available, but command execution state could not be determined."
+            )
+            status_subtitle.setStyleSheet("font-size: 12px; padding-bottom: 8px;")
+            status_subtitle.setWordWrap(True)
+            layout.addWidget(status_subtitle)
+        else:
+            # Default status header for known execution states
+            status_title = QLabel("Diagnostics")
+            status_title.setStyleSheet("font-weight: bold; font-size: 14px; padding: 4px 0;")
+            layout.addWidget(status_title)
+
         # Create readonly text area with all error details
         self._text_edit = QPlainTextEdit()
         self._text_edit.setReadOnly(True)
@@ -247,9 +272,8 @@ class ErrorDetailsDialog(QDialog):
         buttons.rejected.connect(self._on_close)
         layout.addWidget(buttons)
 
-        close_button = buttons.button(QDialogButtonBox.Close)
-        if close_button is not None:
-            close_button.setFocus()
+        # Set initial focus to details textarea per UX spec accessibility contract
+        self._text_edit.setFocus()
 
     def _format_sections(self, sections: dict[str, str]) -> str:
         """Format sections into a single text block for display and copying."""
@@ -310,10 +334,14 @@ class ErrorDetailsDialog(QDialog):
                 continue
             raw_sections[section] = value.strip()
 
-        sections = {"Summary": raw_sections["Summary"]}
+        sections: dict[str, str] = {"Summary": raw_sections["Summary"]}
 
         if raw_sections["Incident evidence"]:
             sections["Incident evidence"] = raw_sections["Incident evidence"]
+
+        # Track raw outputs for details textarea preservation when execution state unknown
+        raw_stdout = raw_sections["stdout"]
+        raw_stderr = raw_sections["stderr"]
 
         if command_executed is True:
             sections["Command"] = raw_sections["Command"] or "unknown"
@@ -330,10 +358,21 @@ class ErrorDetailsDialog(QDialog):
                 sections["stdout"] = stdout
             else:
                 sections["stdout"] = ""
+        elif command_executed is None:
+            # Unknown execution state: use unknown-state copy contract per UX spec
+            # Smart fields avoid command-failure phrasing
+            sections["Command"] = "unknown"
+            sections["Exit code"] = "unknown"
+            # Preserve raw outputs in details textarea even when hidden from smart fields
+            if raw_stdout:
+                sections["stdout"] = raw_stdout
+            if raw_stderr:
+                sections["stderr"] = raw_stderr
+
         if raw_sections["Timestamp"]:
             sections["Timestamp"] = raw_sections["Timestamp"]
 
-        return cls(sections=sections, parent=parent)
+        return cls(sections=sections, parent=parent, command_executed=command_executed)
 
 
 class StatusTray:

@@ -280,14 +280,15 @@ def test_error_details_dialog_has_required_section_order(qapp):
     dialog.close()
 
 
-def test_error_details_dialog_focus_defaults_to_close_button(qapp):
+def test_error_details_dialog_focus_defaults_to_textarea(qapp):
+    """Initial focus should be on details textarea per UX spec accessibility contract."""
     dialog = ErrorDetailsDialog.from_text(
         summary="AWS CLI unavailable",
         details="Command: sts_check\nExit code: 1",
     )
 
-    assert dialog.focusWidget() is not None
-    assert "Close" in dialog.focusWidget().text()
+    # Focus should be on the details textarea, not the Close button
+    assert dialog.focusWidget() is dialog._text_edit
     dialog.close()
 
 
@@ -372,7 +373,44 @@ def test_error_details_dialog_hides_command_fields_when_not_executed(qapp):
     dialog.close()
 
 
-def test_error_details_dialog_hides_command_fields_when_execution_unknown(qapp):
+def test_error_details_dialog_unknown_execution_state_copy_contract(qapp):
+    """Unknown execution state must show 'Unknown execution state' header and supporting copy."""
+    dialog = ErrorDetailsDialog.from_text(
+        summary="Payload incomplete",
+        details=(
+            "Command: sts_check\n"
+            "Exit code: 1\n"
+            "stderr: error output\n"
+            "stdout: some output\n"
+            "Timestamp: 2026-05-09T12:00:00Z"
+        ),
+    )
+
+    # Dialog should have unknown execution state (command_executed not specified)
+    assert dialog._command_executed is None
+
+    # Textarea should contain the raw outputs even though command_executed is unknown
+    text = dialog._text_edit.toPlainText()
+    assert "Summary: Payload incomplete" in text
+    assert "stdout: some output" in text
+    assert "stderr: error output" in text
+    dialog.close()
+
+
+def test_error_details_dialog_focus_on_textarea_for_unknown_state(qapp):
+    """Focus should be on textarea even for unknown execution state."""
+    dialog = ErrorDetailsDialog.from_text(
+        summary="Unknown state test",
+        details="Command: test\nstderr: error",
+    )
+
+    assert dialog._command_executed is None
+    assert dialog.focusWidget() is dialog._text_edit
+    dialog.close()
+
+
+def test_error_details_dialog_shows_unknown_fields_when_execution_unknown(qapp):
+    """Unknown execution state shows 'unknown' for Command/Exit code per UX spec contract."""
     dialog = ErrorDetailsDialog.from_text(
         summary="Connectivity issue",
         details=(
@@ -387,10 +425,12 @@ def test_error_details_dialog_hides_command_fields_when_execution_unknown(qapp):
     text = dialog._text_edit.toPlainText()
     assert "Summary: Connectivity issue" in text
     assert "Timestamp: 2026-05-09T12:00:00Z" in text
-    assert "Command:" not in text
-    assert "Exit code:" not in text
-    assert "stderr:" not in text
-    assert "stdout:" not in text
+    # Per UX spec, unknown execution state shows "unknown" values, not hiding fields
+    assert "Command: unknown" in text
+    assert "Exit code: unknown" in text
+    # Raw outputs are preserved in textarea even when execution state unknown
+    assert "stderr: failed" in text
+    assert "stdout: output" in text
     dialog.close()
 
 
@@ -428,8 +468,10 @@ def test_status_tray_default_diagnostics_opens_dialog(qapp):
 
     assert tray._details_dialog is not None
     assert tray._details_dialog.isVisible()
-    assert tray._details_dialog.sections["Command"] == "sts_check"
+    # Default diagnostics don't specify command_executed, so it's unknown state
+    assert tray._details_dialog.sections["Command"] == "unknown"
     assert tray._details_dialog.sections["Exit code"] == "unknown"
+    # Raw stdout/stderr from default diagnostics are preserved in textarea
     assert tray._details_dialog.sections["stderr"] == "unavailable"
     assert tray._details_dialog.sections["stdout"] == "unavailable"
     assert tray._details_dialog.sections["Timestamp"] == "unavailable"
