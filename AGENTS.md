@@ -31,7 +31,25 @@
 - `.gitignore` still contains legacy Go-oriented patterns; do not infer Go tooling from it.
 
 ## Git workflow convention
-- Use Conventional Commits format for all git commit messages (for example: `feat: ...`, `fix: ...`, `docs: ...`, `chore: ...`).
+- Use Conventional Commits for all commit subjects: `<type>(<scope>): <summary>`.
+- Prefer adding a scope that names the primary area changed (for example: `service`, `tray`, `tests`, `docs`, `deps`); omit scope only when no single area fits.
+- Keep the first line as a concise summary in imperative mood, lowercase start, no trailing period, ideally <= 72 characters.
+- Use valid types with intent: `feat` (new behavior), `fix` (bug fix), `refactor` (internal change without behavior change), `test`, `docs`, `chore`, `build`, `ci`, `perf`, `revert`.
+- Separate subject and body with one blank line.
+- In the body, describe changes as concrete bullet points, with the first bullets covering why and impact before low-level details.
+- Prefer explicit bullets such as: what changed, why it changed, user/runtime risk, test or verification notes, and follow-up actions.
+- Wrap body lines at about 72 characters and use short bullet points when helpful for readability.
+- Reference issues or tickets in the footer (for example: `Refs: #123`, `Closes: #123`) and include breaking changes explicitly (`BREAKING CHANGE: ...`) when applicable.
+- Example:
+  ```
+  fix(service): classify protocol mismatch preflight failures
+
+  - detect protocol mismatch during tray-host preflight
+  - explain early startup exit in structured logs on unsupported hosts
+  - reduce ambiguous failure triage for operators
+
+  Refs: #123
+  ```
 
 ## Project state from session history
 - Main branch already contains the full tray app feature merge (`621603a Merge aws-sso-autologin`).
