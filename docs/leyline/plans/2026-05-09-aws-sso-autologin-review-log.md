@@ -275,3 +275,205 @@
 
 ## Deferred findings
 - None currently.
+
+## Branch-level code review (round 2)
+
+- Reviewed range: `5fd6c44..63f9cd9`
+- Re-review head before fixes: `63f9cd9`
+
+### Findings
+- F15 (Critical): Runtime login path bypasses secure-wrapper + 180s timeout contract (`aws_sso_autologin/operator.py`, `aws_sso_autologin/cli.py`, `aws_sso_autologin/aws.py`).
+- F16 (Critical): Tray-host heartbeat/loss logic not integrated in runtime app lifecycle (`aws_sso_autologin/__main__.py`, `aws_sso_autologin/service.py`).
+- F17 (Critical): Missing iron-law RED/debugging records in review log.
+- F18 (Important): Empty-profile startup exits instead of continuing in empty-state mode (`aws_sso_autologin/__main__.py`).
+- F19 (Important): Missing per-task post-implementation verification evidence in review log.
+
+### Response F15
+- Claim (restated): Actual operator login execution must use one canonical path that enforces wrapper lifecycle and `sso_login` timeout policy.
+- Verification: `LoginOperator._process_login` called `CLIExecutor.execute_login`; `CLIExecutor` used direct `subprocess.run(... timeout=300)` and did not invoke `run_sso_login`.
+- Decision: accept
+- Reasoning: This bypassed both security and timeout requirements in the production login flow.
+- Re-dispatch or escalation (push-back on Critical only): N/A
+- Sibling review re-dispatch (if fix crossed concerns): N/A
+- Implementation: Implemented in working tree (uncommitted): `aws_sso_autologin/cli.py`, `aws_sso_autologin/constants.py`, `tests/test_cli.py`.
+
+### Response F16
+- Claim (restated): Runtime tray-host heartbeat exists but must be wired into `AutologinApp` lifecycle with periodic checks and pause behavior.
+- Verification: `ConcreteTrayHost.ping()` existed in `service.py`, but `__main__.py` did not instantiate tray host monitor or heartbeat timer.
+- Decision: accept
+- Reasoning: Required runtime safety path was not active.
+- Re-dispatch or escalation (push-back on Critical only): N/A
+- Sibling review re-dispatch (if fix crossed concerns): Required (design review)
+- Implementation: Implemented in working tree (uncommitted): `aws_sso_autologin/__main__.py`, `aws_sso_autologin/constants.py`, `tests/test_main.py`.
+
+### Response F17
+- Claim (restated): Review log must include explicit RED/debugging records for branch-level remediation findings.
+- Verification: No `Systematic-debugging record` sections were present for re-review findings before this update.
+- Decision: accept
+- Reasoning: Process artifact is mandatory for iron-law traceability.
+- Re-dispatch or escalation (push-back on Critical only): N/A
+- Sibling review re-dispatch (if fix crossed concerns): N/A
+- Implementation: This section plus `Systematic-debugging record - round 2` entries below.
+
+### Response F18
+- Claim (restated): App should remain running in empty-profile mode and show actionable global state rather than exiting.
+- Verification: `run()` returned `1` when `_load_profiles()` failed.
+- Decision: accept
+- Reasoning: UX flow requires continued monitoring state for profile-source updates.
+- Re-dispatch or escalation (push-back on Critical only): N/A
+- Sibling review re-dispatch (if fix crossed concerns): Required (design review)
+- Implementation: Implemented in working tree (uncommitted): `aws_sso_autologin/__main__.py`, `tests/test_main.py`.
+
+### Response F19
+- Claim (restated): Review log should include concrete post-implementation verification outputs.
+- Verification: Prior review-log section lacked explicit command-result evidence for round-2 fixes.
+- Decision: accept
+- Reasoning: Verification-before-completion requires explicit observable evidence.
+- Re-dispatch or escalation (push-back on Critical only): N/A
+- Sibling review re-dispatch (if fix crossed concerns): N/A
+- Implementation: Added `Failing-test output (round 2)` and `Post-implementation verification output (round 2)` sections below.
+
+## Branch-level design review (round 2)
+
+### Findings
+- D13 (Critical): Icon semantic states were tracked logically but rendered with a single blank icon (`aws_sso_autologin/tray.py`).
+- D14 (Critical): Default diagnostics text was not structured `key: value`, leaving dialog fields empty (`aws_sso_autologin/tray.py`).
+- D15 (Critical): Startup global-error summary used action-label wording rather than class-accurate summary (`aws_sso_autologin/__main__.py`).
+- D16 (Critical): A11y evidence lacked keyboard-walk + narration proxy transcript detail (`docs/leyline/plans/2026-05-09-aws-sso-autologin-a11y-evidence.md`).
+- D17 (Important): Dialog default focus on close action not explicitly enforced/tested (`aws_sso_autologin/tray.py`, `tests/test_tray.py`).
+- D18 (Important): Error fallback copy used vague `Unknown error` text (`aws_sso_autologin/tray.py`).
+
+### Response D13
+- Claim (restated): Icon semantics must render distinct visual assets for each state, not just state strings.
+- Verification: `_update_icon_state` set `QIcon()` regardless of `current_icon_state`.
+- Decision: accept-impl
+- Reasoning: Primary surface signal was visually non-functional.
+- Re-dispatch or escalation (push-back on Critical only): N/A
+- Sibling review re-dispatch (if fix crossed concerns): Required (code review)
+- Implementation / spec update / tracking: Implemented in working tree (uncommitted): `aws_sso_autologin/tray.py`, `tests/test_tray.py`.
+
+### Response D14
+- Claim (restated): Default diagnostics payload must populate all required dialog fields.
+- Verification: Default text used unlabeled lines (`Summary\nCommand\nExit code...`) that parser ignored.
+- Decision: accept-impl
+- Reasoning: Failure-path dialog could open with mostly empty fields.
+- Re-dispatch or escalation (push-back on Critical only): N/A
+- Sibling review re-dispatch (if fix crossed concerns): Required (code review)
+- Implementation / spec update / tracking: Implemented in working tree (uncommitted): `aws_sso_autologin/tray.py`, `tests/test_tray.py`.
+
+### Response D15
+- Claim (restated): Global-error summary content must be semantic diagnosis, not first-row action label.
+- Verification: `set_global_error(summary="Show startup/sync error", ...)` was used in startup failure paths.
+- Decision: accept-impl
+- Reasoning: Action label and diagnostics summary serve different UX purposes.
+- Re-dispatch or escalation (push-back on Critical only): N/A
+- Sibling review re-dispatch (if fix crossed concerns): Required (code review)
+- Implementation / spec update / tracking: Implemented in working tree (uncommitted): `aws_sso_autologin/__main__.py`.
+
+### Response D16
+- Claim (restated): Accessibility evidence must include concrete keyboard/read-order transcript detail.
+- Verification: Prior artifact listed test pass counts but lacked explicit transcript-like evidence.
+- Decision: accept-impl
+- Reasoning: Iron-law-5 requires concrete evidence, not just high-level claims.
+- Re-dispatch or escalation (push-back on Critical only): N/A
+- Sibling review re-dispatch (if fix crossed concerns): N/A
+- Implementation / spec update / tracking: Updated `docs/leyline/plans/2026-05-09-aws-sso-autologin-a11y-evidence.md` with keyboard-walk and narration-proxy transcript commands/results.
+
+### Response D17
+- Claim (restated): Dialog should explicitly focus close action for predictable keyboard behavior.
+- Verification: Close button existed but focus behavior was not explicitly set or tested.
+- Decision: accept-impl
+- Reasoning: Keyboard entry point should be deterministic.
+- Re-dispatch or escalation (push-back on Critical only): N/A
+- Sibling review re-dispatch (if fix crossed concerns): N/A
+- Implementation / spec update / tracking: Implemented in working tree (uncommitted): `aws_sso_autologin/tray.py`, `tests/test_tray.py`.
+
+### Response D18
+- Claim (restated): Error fallback copy should use operationally meaningful wording.
+- Verification: Fallback label used `Unknown error`.
+- Decision: accept-impl
+- Reasoning: Operational copy should stay actionable and consistent.
+- Re-dispatch or escalation (push-back on Critical only): N/A
+- Sibling review re-dispatch (if fix crossed concerns): N/A
+- Implementation / spec update / tracking: Implemented in working tree (uncommitted): `aws_sso_autologin/tray.py`.
+
+## Systematic-debugging record - round 2
+
+### Record 1 - Login execution contract
+- Root cause (one sentence, plain English): Login operator used a legacy CLI path with 300s timeout and no secure-wrapper lifecycle.
+- Falsifying test: `python` contract script on pre-round2 worktree asserted timeout `180` and failed with `expected timeout 180, got 300`.
+- Hypothesis: If `CLIExecutor.execute_login` delegates to `run_sso_login(... timeout=180)`, operator runtime path will inherit wrapper + timeout contract.
+- Fix: Delegated `CLIExecutor.execute_login` to `run_sso_login` and introduced `SSO_LOGIN_TIMEOUT_SECONDS = 180`.
+- Regression coverage: `pytest tests/test_cli.py -q`.
+
+### Record 2 - Runtime tray-host heartbeat integration
+- Root cause (one sentence, plain English): Tray-host ping logic existed only in `service.py` and was never invoked by the running app.
+- Falsifying test: `python` contract script on pre-round2 worktree failed `missing runtime tray-host heartbeat hook`.
+- Hypothesis: Adding tray-host monitor creation + 30s timer + loss handler in `AutologinApp` will enforce runtime heartbeat behavior.
+- Fix: Added `_create_tray_host_monitor`, `_on_tray_host_heartbeat`, timer start/stop wiring, and pause/continue behavior gates.
+- Regression coverage: `pytest tests/test_main.py -q`.
+
+### Record 3 - Empty-profile startup behavior
+- Root cause (one sentence, plain English): Startup path treated `no profiles` as fatal even though UX flow expects empty-state continuation.
+- Falsifying test: `python` contract script on pre-round2 worktree failed `expected continue-in-empty-state (0), got 1`.
+- Hypothesis: Converting no-profile path to global error + continued run loop will satisfy UX flow without startup exit.
+- Fix: `run()` now keeps app alive in empty-state mode and sets summary `No SSO profiles detected`.
+- Regression coverage: `pytest tests/test_main.py::test_run_continues_when_profiles_do_not_load -q`.
+
+### Record 4 - Icon-state rendering and diagnostics population
+- Root cause (one sentence, plain English): Tray state machine updated string state only; icon rendering and default diagnostics field population were incomplete.
+- Falsifying test: pre-round2 icon contract script failed `expected distinct icon states, got enabled=0, paused=0`.
+- Hypothesis: Rendering state-specific icon assets and using default `key: value` diagnostics payload will satisfy state-matrix/icon/dialog contracts.
+- Fix: Added state-icon rendering map, close-focus behavior, and structured fallback diagnostics text.
+- Regression coverage: `pytest tests/test_tray.py -q`.
+
+## Failing-test output (round 2)
+
+### Pre-fix contract failure snapshots (from temp worktree at `63f9cd9`)
+
+1. Login timeout contract:
+
+```
+AssertionError: expected timeout 180, got 300
+```
+
+2. Empty-state startup contract:
+
+```
+AssertionError: expected continue-in-empty-state (0), got 1
+```
+
+3. Icon-state rendering contract:
+
+```
+AssertionError: expected distinct icon states, got enabled=0, paused=0
+```
+
+4. Runtime heartbeat hook contract:
+
+```
+AssertionError: missing runtime tray-host heartbeat hook
+```
+
+## Post-implementation verification output (round 2)
+
+- Contract checks on current worktree:
+
+```
+login_timeout_contract: pass
+empty_state_startup_contract: pass
+icon_state_rendering_contract: pass
+runtime_heartbeat_hook_contract: pass
+```
+
+- Accessibility-focused tray interaction checks:
+
+```
+9 passed, 13 deselected in 0.18s
+```
+
+- Full verification:
+
+```
+125 passed in 2.25s
+```

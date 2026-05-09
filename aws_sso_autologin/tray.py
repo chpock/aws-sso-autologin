@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Callable, Optional
 
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QAction, QIcon
+from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -221,6 +221,7 @@ class ErrorDetailsDialog(QDialog):
         self.setWindowTitle("AWS SSO Autologin Diagnostics")
         self.resize(760, 480)
         self.section_order = list(self.SECTION_ORDER)
+        self.sections = dict(sections)
 
         layout = QFormLayout(self)
 
@@ -236,6 +237,10 @@ class ErrorDetailsDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
+
+        close_button = buttons.button(QDialogButtonBox.Close)
+        if close_button is not None:
+            close_button.setFocus()
 
     @classmethod
     def from_text(
@@ -301,9 +306,10 @@ class StatusTray:
         self._on_toggle_monitoring = on_toggle_monitoring
         self._on_quit = on_quit
         self._on_show_diagnostics = on_show_diagnostics
+        self._state_icons = self._build_state_icons()
 
         self.tray_icon = QSystemTrayIcon(parent)
-        self.tray_icon.setIcon(QIcon())
+        self.tray_icon.setIcon(self._state_icons[self.current_icon_state])
         self.tray_icon.setVisible(True)
 
         self._menu = QMenu(parent)
@@ -374,7 +380,34 @@ class StatusTray:
     def _update_icon_state(self) -> None:
         icon_state = self._compute_icon_state()
         self.current_icon_state = icon_state
-        self.tray_icon.setIcon(QIcon())
+        self.tray_icon.setIcon(self._state_icons[icon_state])
+
+    def _build_state_icons(self) -> dict[str, QIcon]:
+        palette = {
+            "enabled-ok": QColor("#2e7d32"),
+            "enabled-syncing": QColor("#1565c0"),
+            "enabled-warning": QColor("#ef6c00"),
+            "enabled-error": QColor("#c62828"),
+            "disabled-paused": QColor("#616161"),
+        }
+        return {
+            state: self._make_state_icon(color)
+            for state, color in palette.items()
+        }
+
+    def _make_state_icon(self, color: QColor) -> QIcon:
+        size = 16
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.transparent)
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(QPen(QColor("#1f1f1f"), 1))
+        painter.setBrush(color)
+        painter.drawEllipse(1, 1, size - 2, size - 2)
+        painter.end()
+
+        return QIcon(pixmap)
 
     def _compute_icon_state(self) -> str:
         if not self._monitoring_enabled:
@@ -461,9 +494,14 @@ class StatusTray:
                 f'Auto-login failed for profile "{profile_name}". Click to view full diagnostics.'
             )
             details = status.diagnostics_details or (
-                "Summary\n"
-                "Incident evidence unavailable: retention window exceeded.\n"
-                "Command\nExit code\nstderr\nstdout\nTimestamp"
+                "Summary: Auto-login failed for profile "
+                f"\"{profile_name}\". Click to view full diagnostics.\n"
+                "Incident evidence: Incident evidence unavailable: retention window exceeded.\n"
+                "Command: sts_check\n"
+                "Exit code: unknown\n"
+                "stderr: unavailable\n"
+                "stdout: unavailable\n"
+                "Timestamp: unavailable"
             )
             self._emit_diagnostics(summary, details)
             return
@@ -501,7 +539,7 @@ class StatusTray:
             reason = status.short_reason or "Connectivity issue"
             return f"Profile: {name} - Warning: {reason}"
         if state == ProfileState.ERROR:
-            reason = status.short_reason or "Unknown error"
+            reason = status.short_reason or "Command failed"
             return f"Profile: {name} - Error: {reason}"
         if state == ProfileState.PAUSED_OK:
             return f"Profile: {name} - OK (paused)"

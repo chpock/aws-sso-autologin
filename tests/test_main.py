@@ -128,7 +128,7 @@ def test_main_function():
         mock_app.run.assert_called_once()
 
 
-def test_run_fails_when_profiles_do_not_load():
+def test_run_continues_when_profiles_do_not_load():
     from aws_sso_autologin.__main__ import AutologinApp
 
     app = AutologinApp([])
@@ -139,13 +139,15 @@ def test_run_fails_when_profiles_do_not_load():
         with patch.object(app, "_detect_tray_host", return_value=True):
             with patch.object(app, "_create_tray", return_value=True):
                 with patch.object(app, "_create_operators", return_value=True):
-                    with patch.object(app, "_wire_signals"):
-                        with patch.object(app, "_load_profiles", return_value=False):
-                            with patch.object(app, "_start_monitoring", return_value=True):
-                                app._app = mock_qapp
-                                result = app.run()
+                    with patch.object(app, "_create_tray_host_monitor", return_value=True):
+                        with patch.object(app, "_wire_signals"):
+                            with patch.object(app, "_load_profiles", return_value=False):
+                                with patch.object(app, "_start_monitoring", return_value=True):
+                                    app._app = mock_qapp
+                                    app._tray = Mock()
+                                    result = app.run()
 
-    assert result == 1
+    assert result == 0
 
 
 def test_run_fails_when_monitoring_does_not_start():
@@ -159,10 +161,72 @@ def test_run_fails_when_monitoring_does_not_start():
         with patch.object(app, "_detect_tray_host", return_value=True):
             with patch.object(app, "_create_tray", return_value=True):
                 with patch.object(app, "_create_operators", return_value=True):
-                    with patch.object(app, "_wire_signals"):
-                        with patch.object(app, "_load_profiles", return_value=True):
-                            with patch.object(app, "_start_monitoring", return_value=False):
-                                app._app = mock_qapp
-                                result = app.run()
+                    with patch.object(app, "_create_tray_host_monitor", return_value=True):
+                        with patch.object(app, "_wire_signals"):
+                            with patch.object(app, "_load_profiles", return_value=True):
+                                with patch.object(app, "_start_monitoring", return_value=False):
+                                    app._app = mock_qapp
+                                    app._tray = Mock()
+                                    result = app.run()
 
     assert result == 1
+
+
+def test_tray_host_loss_pauses_monitoring_by_default():
+    from aws_sso_autologin.__main__ import AutologinApp, TRAY_HOST_LOST_SUMMARY
+
+    app = AutologinApp([])
+    app._tray = Mock()
+    app._tray_loss_behavior = "pause"
+
+    host = Mock()
+    host.ping.return_value = False
+    host.is_lost = True
+    host.consecutive_failures = 3
+    host.get_info.return_value = Mock(name="GNOME")
+    host.get_info.return_value.name = "GNOME"
+    app._tray_host = host
+
+    app._on_tray_host_heartbeat()
+
+    app._tray.set_global_error.assert_called_once()
+    kwargs = app._tray.set_global_error.call_args.kwargs
+    assert kwargs["summary"] == TRAY_HOST_LOST_SUMMARY
+    app._tray.set_monitoring_enabled.assert_called_once_with(False)
+
+
+def test_tray_host_loss_continue_mode_keeps_monitoring():
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    app = AutologinApp([])
+    app._tray = Mock()
+    app._tray_loss_behavior = "continue"
+
+    host = Mock()
+    host.ping.return_value = False
+    host.is_lost = True
+    host.consecutive_failures = 3
+    host.get_info.return_value = Mock(name="GNOME")
+    host.get_info.return_value.name = "GNOME"
+    app._tray_host = host
+
+    app._on_tray_host_heartbeat()
+
+    app._tray.set_global_error.assert_called_once()
+    app._tray.set_monitoring_enabled.assert_not_called()
+
+
+def test_tray_host_recovery_clears_global_error():
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    app = AutologinApp([])
+    app._tray = Mock()
+    app._tray_host_loss_announced = True
+
+    host = Mock()
+    host.ping.return_value = True
+    app._tray_host = host
+
+    app._on_tray_host_heartbeat()
+
+    app._tray.set_global_error.assert_called_once_with(None, "")

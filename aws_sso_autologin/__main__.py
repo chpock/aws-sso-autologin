@@ -1,12 +1,20 @@
 """Main entry point for AWS SSO Autologin application."""
 
+import os
 import sys
 from datetime import datetime
 from typing import Optional, List
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
-from aws_sso_autologin.service import detect_tray_host, check_tray_host_available
+from aws_sso_autologin.constants import CHECK_INTERVAL_SECONDS
+from aws_sso_autologin.service import (
+    TrayHost,
+    check_tray_host_available,
+    create_tray_host,
+    detect_tray_host,
+)
 from aws_sso_autologin.tray import ProfileState, ProfileStatus, StatusTray
 from aws_sso_autologin.operator import HealthOperator, SessionOperator, LoginOperator
 from aws_sso_autologin.models import ProfileConfig
@@ -19,6 +27,9 @@ TRAY_HOST_REQUIRED_MESSAGE = (
     "Tray host support is required. Start this app in a Linux session "
     "with a compatible StatusNotifier/system tray host."
 )
+NO_PROFILES_SUMMARY = "No SSO profiles detected"
+MONITORING_START_FAILED_SUMMARY = "Monitoring startup failed"
+TRAY_HOST_LOST_SUMMARY = "Tray host heartbeat lost"
 
 
 class AutologinApp:
@@ -47,6 +58,12 @@ class AutologinApp:
         self._session_operator: Optional[SessionOperator] = None
         self._login_operator: Optional[LoginOperator] = None
         self._profiles: List[ProfileConfig] = []
+        self._tray_host: Optional[TrayHost] = None
+        self._tray_host_timer: Optional[QTimer] = None
+        self._tray_host_loss_announced = False
+        self._tray_loss_behavior = os.getenv(
+            "AWS_SSO_AUTOLOGIN_TRAY_LOSS_BEHAVIOR", "pause"
+        ).strip().lower()
         
         logger.debug("AutologinApp: Initialized")
     
@@ -126,6 +143,51 @@ class AutologinApp:
         except Exception as e:
             logger.error(f"Failed to create operators: {e}")
             return False
+
+    def _create_tray_host_monitor(self) -> bool:
+        """Create tray-host monitor resources for runtime heartbeat checks."""
+        self._tray_host = create_tray_host()
+        if self._tray_host is None:
+            logger.error("Failed to create tray-host monitor")
+            return False
+
+        self._tray_host_timer = QTimer()
+        self._tray_host_timer.setInterval(CHECK_INTERVAL_SECONDS * 1000)
+        self._tray_host_timer.timeout.connect(self._on_tray_host_heartbeat)
+        return True
+
+    def _on_tray_host_heartbeat(self) -> None:
+        """Handle periodic tray-host runtime heartbeat checks."""
+        if self._tray_host is None:
+            return
+
+        if self._tray_host.ping():
+            if self._tray_host_loss_announced and self._tray is not None:
+                self._tray.set_global_error(None, "")
+                self._tray_host_loss_announced = False
+            return
+
+        if not getattr(self._tray_host, "is_lost", False):
+            return
+
+        details = (
+            f"Tray host '{self._tray_host.get_info().name}' failed heartbeat checks "
+            f"({self._tray_host.consecutive_failures} consecutive failures)."
+        )
+
+        if self._tray is not None:
+            self._tray.set_global_error(summary=TRAY_HOST_LOST_SUMMARY, details=details)
+
+        self._tray_host_loss_announced = True
+
+        if self._tray_loss_behavior == "continue":
+            logger.warning("Tray host lost; continuing monitoring per tray-loss behavior")
+            return
+
+        if self._tray is not None:
+            self._tray.set_monitoring_enabled(False)
+
+        logger.error("Tray host lost; monitoring paused")
     
     def _wire_signals(self) -> None:
         """Wire signals between components.
@@ -162,11 +224,15 @@ class AutologinApp:
 
         if enabled:
             self._health_operator.start()
+            if self._tray_host_timer is not None:
+                self._tray_host_timer.start()
             if self._tray is not None:
                 self._tray.set_syncing(True)
             return
 
         self._health_operator.stop()
+        if self._tray_host_timer is not None:
+            self._tray_host_timer.stop()
         if self._tray is not None:
             self._tray.set_syncing(False)
 
@@ -256,6 +322,10 @@ class AutologinApp:
         # Create operators
         if not self._create_operators():
             return 1
+
+        # Create tray-host runtime monitor
+        if not self._create_tray_host_monitor():
+            return 1
         
         # Wire signals
         self._wire_signals()
@@ -264,21 +334,23 @@ class AutologinApp:
         if not self._load_profiles():
             if self._tray is not None:
                 self._tray.set_global_error(
-                    summary="Show startup/sync error",
+                    summary=NO_PROFILES_SUMMARY,
                     details="No SSO profiles detected. Monitoring profile sources for changes.",
                 )
-            logger.error("No SSO profiles loaded; exiting")
-            return 1
+            logger.warning("No SSO profiles loaded; continuing in empty-state mode")
 
         # Start monitoring
         if not self._start_monitoring():
             if self._tray is not None:
                 self._tray.set_global_error(
-                    summary="Show startup/sync error",
+                    summary=MONITORING_START_FAILED_SUMMARY,
                     details="Failed to start monitoring loop.",
                 )
             logger.error("Health monitoring failed to start; exiting")
             return 1
+
+        if self._tray_host_timer is not None:
+            self._tray_host_timer.start()
 
         if self._tray is not None:
             self._tray.set_syncing(False)
@@ -293,7 +365,10 @@ class AutologinApp:
         
         if self._health_operator:
             self._health_operator.stop()
-        
+
+        if self._tray_host_timer is not None:
+            self._tray_host_timer.stop()
+
         if self._tray:
             self._tray.close()
         

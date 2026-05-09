@@ -122,10 +122,12 @@ def test_status_tray_first_row_toggle_contract(qapp):
 
 def test_status_tray_paused_switches_first_row(qapp):
     tray = StatusTray()
+    enabled_icon_key = tray.tray_icon.icon().cacheKey()
     tray.set_monitoring_enabled(False)
     actions = tray.tray_icon.contextMenu().actions()
     assert actions[0].text() == "Enable auto-login"
     assert tray.current_icon_state == "disabled-paused"
+    assert tray.tray_icon.icon().cacheKey() != enabled_icon_key
     tray.close()
 
 
@@ -277,6 +279,17 @@ def test_error_details_dialog_has_required_section_order(qapp):
     dialog.close()
 
 
+def test_error_details_dialog_focus_defaults_to_close_button(qapp):
+    dialog = ErrorDetailsDialog.from_text(
+        summary="AWS CLI unavailable",
+        details="Command: sts_check\nExit code: 1",
+    )
+
+    assert dialog.focusWidget() is not None
+    assert "Close" in dialog.focusWidget().text()
+    dialog.close()
+
+
 def test_status_tray_default_diagnostics_opens_dialog(qapp):
     tray = StatusTray()
     tray.update_profile(
@@ -296,6 +309,11 @@ def test_status_tray_default_diagnostics_opens_dialog(qapp):
 
     assert tray._details_dialog is not None
     assert tray._details_dialog.isVisible()
+    assert tray._details_dialog.sections["Command"] == "sts_check"
+    assert tray._details_dialog.sections["Exit code"] == "unknown"
+    assert tray._details_dialog.sections["stderr"] == "unavailable"
+    assert tray._details_dialog.sections["stdout"] == "unavailable"
+    assert tray._details_dialog.sections["Timestamp"] == "unavailable"
 
     tray._details_dialog.close()
     tray.close()

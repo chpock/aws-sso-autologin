@@ -4,6 +4,9 @@ import logging
 import subprocess
 from typing import Optional
 
+from aws_sso_autologin.aws import run_sso_login
+from aws_sso_autologin.constants import SSO_LOGIN_TIMEOUT_SECONDS
+
 logger = logging.getLogger(__name__)
 
 
@@ -18,11 +21,18 @@ class CLIExecutor:
         """
         self._cli_path = cli_path
 
-    def execute_login(self, profile_name: str) -> tuple[str, str, int]:
+    def execute_login(
+        self,
+        profile_name: str,
+        browser: Optional[str | list[str]] = None,
+        timeout: int = SSO_LOGIN_TIMEOUT_SECONDS,
+    ) -> tuple[str, str, int]:
         """Execute AWS SSO login for a profile.
 
         Args:
             profile_name: Name of the profile to log in.
+            browser: Optional browser override command.
+            timeout: Login timeout in seconds.
 
         Returns:
             Tuple of (stdout, stderr, returncode).
@@ -30,18 +40,14 @@ class CLIExecutor:
         logger.info(f"Executing login for profile {profile_name}")
 
         try:
-            result = subprocess.run(
-                [self._cli_path, "sso", "login", "--profile", profile_name],
-                capture_output=True,
-                text=True,
-                timeout=300,  # 5 minute timeout for login
+            success, error = run_sso_login(
+                profile=profile_name,
+                browser=browser,
+                timeout=timeout,
             )
-
-            return (result.stdout, result.stderr, result.returncode)
-
-        except subprocess.TimeoutExpired:
-            logger.error(f"Login timed out for profile {profile_name}")
-            return ("", "Login timed out after 5 minutes", -1)
+            if success:
+                return ("", "", 0)
+            return ("", error or "Login failed", 1)
         except Exception as e:
             logger.error(f"Error executing login for {profile_name}: {e}")
             return ("", str(e), -1)
