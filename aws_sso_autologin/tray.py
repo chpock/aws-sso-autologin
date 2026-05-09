@@ -259,6 +259,17 @@ class ErrorDetailsDialog(QDialog):
         self._text_edit.setPlainText(self._format_sections(sections))
         layout.addWidget(self._text_edit, 1)
 
+
+        # Sensitive data disclosure label (persistent, between textarea and buttons)
+        self._sensitive_data_disclosure = QLabel(
+            "Copied data may contain sensitive information and should be shared "
+            "only with trusted support channels."
+        )
+        self._sensitive_data_disclosure.setObjectName("sensitive-data-disclosure")
+        self._sensitive_data_disclosure.setWordWrap(True)
+        self._sensitive_data_disclosure.setStyleSheet("font-size: 11px; color: #666;")
+        layout.addWidget(self._sensitive_data_disclosure)
+
         # Add close button
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
         buttons.rejected.connect(self._on_close)

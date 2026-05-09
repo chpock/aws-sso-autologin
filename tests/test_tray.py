@@ -488,3 +488,97 @@ def test_error_details_dialog_has_three_regions(qapp):
     assert dialog._text_edit is not None
     assert dialog._text_edit.isReadOnly() is True
     dialog.close()
+
+
+class TestSensitiveDataDisclosure:
+    """Tests for sensitive data disclosure label (Finding F9)."""
+
+    def test_disclosure_label_exists(self, qapp):
+        """Dialog should have sensitive data disclosure QLabel."""
+        dialog = ErrorDetailsDialog.from_text(
+            summary="Test error",
+            details="Command: test",
+        )
+
+        assert hasattr(dialog, '_sensitive_data_disclosure')
+        assert dialog._sensitive_data_disclosure is not None
+        dialog.close()
+
+    def test_disclosure_label_has_object_name(self, qapp):
+        """Disclosure label should have object name 'sensitive-data-disclosure'."""
+        dialog = ErrorDetailsDialog.from_text(
+            summary="Test error",
+            details="Command: test",
+        )
+
+        assert dialog._sensitive_data_disclosure.objectName() == "sensitive-data-disclosure"
+        dialog.close()
+
+    def test_disclosure_label_is_visible(self, qapp):
+        """Disclosure label should be visible in all states."""
+        dialog = ErrorDetailsDialog.from_text(
+            summary="Test error",
+            details="Command: test",
+        )
+        dialog.show()
+
+        assert dialog._sensitive_data_disclosure.isVisible() is True
+        dialog.close()
+
+    def test_disclosure_label_has_correct_text(self, qapp):
+        """Disclosure label should have the required text."""
+        dialog = ErrorDetailsDialog.from_text(
+            summary="Test error",
+            details="Command: test",
+        )
+
+        expected_text = (
+            "Copied data may contain sensitive information and should be shared "
+            "only with trusted support channels."
+        )
+        assert dialog._sensitive_data_disclosure.text() == expected_text
+        dialog.close()
+
+    def test_disclosure_label_visible_in_error_state(self, qapp):
+        """Disclosure should be visible for error state."""
+        dialog = ErrorDetailsDialog.from_text(
+            summary="Auto-login failed for profile 'test'",
+            details="Command executed: true\nCommand: test\nExit code: 1",
+        )
+        dialog.show()
+
+        assert dialog._sensitive_data_disclosure.isVisible() is True
+        dialog.close()
+
+    def test_disclosure_label_visible_in_warning_state(self, qapp):
+        """Disclosure should be visible for warning state."""
+        dialog = ErrorDetailsDialog.from_text(
+            summary="Connectivity issue for profile 'test'",
+            details="Command executed: true\nCommand: test\nExit code: 1",
+        )
+        dialog.show()
+
+        assert dialog._sensitive_data_disclosure.isVisible() is True
+        dialog.close()
+
+    def test_disclosure_label_visible_in_unknown_state(self, qapp):
+        """Disclosure should be visible for unknown execution state."""
+        dialog = ErrorDetailsDialog.from_text(
+            summary="Payload incomplete",
+            details="Command: test\nstderr: error",
+        )
+        dialog.show()
+
+        assert dialog._sensitive_data_disclosure.isVisible() is True
+        dialog.close()
+
+    def test_disclosure_label_in_layout(self, qapp):
+        """Disclosure label should be in the dialog layout hierarchy."""
+        dialog = ErrorDetailsDialog.from_text(
+            summary="Test error",
+            details="Command: test",
+        )
+
+        # Label should be parented to the dialog
+        assert dialog._sensitive_data_disclosure.parent() is dialog
+        dialog.close()
