@@ -1,0 +1,115 @@
+"""Tests for the main entry point module."""
+
+import pytest
+from unittest.mock import Mock, patch, MagicMock
+
+
+def test_main_imports():
+    from aws_sso_autologin.__main__ import main
+    assert callable(main)
+
+
+def test_autologin_app_initialization():
+    from aws_sso_autologin.__main__ import AutologinApp
+    app = AutologinApp()
+    assert app._app is None
+    assert app._tray is None
+    assert app._health_operator is None
+    assert app._session_operator is None
+    assert app._login_operator is None
+    assert app._profiles == []
+
+
+def test_autologin_app_with_args():
+    from aws_sso_autologin.__main__ import AutologinApp
+    args = ["--test"]
+    app = AutologinApp(args)
+    assert app._args == args
+
+
+def test_autologin_app_detect_tray_host_success():
+    from aws_sso_autologin.__main__ import AutologinApp
+    app = AutologinApp()
+    
+    with patch("aws_sso_autologin.__main__.check_tray_host_available", return_value=True):
+        with patch("aws_sso_autologin.__main__.detect_tray_host") as mock_detect:
+            mock_host_info = Mock()
+            mock_host_info.name = "Test Desktop"
+            mock_detect.return_value = mock_host_info
+            result = app._detect_tray_host()
+    
+    assert result is True
+
+
+def test_autologin_app_detect_tray_host_failure():
+    from aws_sso_autologin.__main__ import AutologinApp
+    app = AutologinApp()
+    
+    with patch("aws_sso_autologin.__main__.check_tray_host_available", return_value=False):
+        result = app._detect_tray_host()
+    
+    assert result is False
+
+
+def test_autologin_app_create_operators():
+    from aws_sso_autologin.__main__ import AutologinApp
+    app = AutologinApp()
+    
+    with patch("aws_sso_autologin.__main__.LoginOperator") as mock_login:
+        with patch("aws_sso_autologin.__main__.SessionOperator") as mock_session:
+            with patch("aws_sso_autologin.__main__.HealthOperator") as mock_health:
+                result = app._create_operators()
+    
+    assert result is True
+    assert app._login_operator is not None
+    assert app._session_operator is not None
+    assert app._health_operator is not None
+
+
+def test_autologin_app_wire_signals():
+    from aws_sso_autologin.__main__ import AutologinApp
+    app = AutologinApp()
+    
+    app._health_operator = Mock()
+    app._tray = Mock()
+    
+    app._wire_signals()
+    
+    app._health_operator.set_status_callback.assert_called_once()
+
+
+def test_autologin_app_on_status_change():
+    from aws_sso_autologin.__main__ import AutologinApp
+    app = AutologinApp()
+    
+    app._tray = Mock()
+    app._profiles = []
+    
+    with patch("aws_sso_autologin.__main__.ProfileStatus") as mock_status:
+        app._on_status_change("test-profile", True)
+        mock_status.assert_called_once()
+
+
+def test_autologin_app_load_profiles_empty():
+    from aws_sso_autologin.__main__ import AutologinApp
+    app = AutologinApp()
+    
+    with patch("aws_sso_autologin.__main__.discover_profiles", return_value=[]):
+        result = app._load_profiles()
+    
+    assert result is False
+    assert app._profiles == []
+
+
+def test_main_function():
+    from aws_sso_autologin.__main__ import main
+    
+    with patch("aws_sso_autologin.__main__.AutologinApp") as mock_app_class:
+        mock_app = Mock()
+        mock_app.run.return_value = 0
+        mock_app_class.return_value = mock_app
+        
+        result = main()
+        
+        assert result == 0
+        mock_app.run.assert_called_once()
