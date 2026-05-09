@@ -5,15 +5,19 @@ PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 PYTEST := $(VENV)/bin/pytest
 
+LOG_LEVEL ?= debug
+
 help:
 	@printf "Available targets:\n"
 	@printf "  make venv          Create local virtual environment\n"
 	@printf "  make prepare       Create venv and install dependencies\n"
 	@printf "  make test          Run test suite\n"
 	@printf "  make test-verbose  Run test suite with verbose output\n"
-	@printf "  make run           Run application module\n"
+	@printf "  make run           Run application module (LOG_LEVEL=debug by default)\n"
 	@printf "  make lint          Placeholder lint target\n"
 	@printf "  make clean         Remove Python/test caches\n"
+	@printf "\nEnvironment variables:\n"
+	@printf "  LOG_LEVEL          Log level: error, warning, info, debug, trace (default: debug)\n"
 
 venv:
 	@test -x "$(PYTHON)" || python3 -m venv "$(VENV)"
@@ -31,17 +35,17 @@ test-verbose: venv
 
 run: venv
 	@echo "Running with automatic mode detection (safe in automation contexts)..."
-	@"$(PYTHON)" -m aws_sso_autologin --log-level debug
+	@"$(PYTHON)" -m aws_sso_autologin --log-level $(LOG_LEVEL)
 
 # Add explicit check-only target for scripts that want it explicitly
 run-check: venv
 	@echo "Running in check-only mode..."
-	@"$(PYTHON)" -m aws_sso_autologin --check-only --log-level debug
+	@"$(PYTHON)" -m aws_sso_autologin --check-only --log-level $(LOG_LEVEL)
 
 # Add automation-safe run target with explicit watchdog
 run-agent: venv
 	@echo "Running in agent-safe mode with watchdog timeout..."
-	@AWS_SSO_AUTOLOGIN_WATCHDOG=1 AWS_SSO_AUTOLOGIN_TIMEOUT=60 "$(PYTHON)" -m aws_sso_autologin --check-only --log-level debug
+	@AWS_SSO_AUTOLOGIN_WATCHDOG=1 AWS_SSO_AUTOLOGIN_TIMEOUT=60 "$(PYTHON)" -m aws_sso_autologin --check-only --log-level $(LOG_LEVEL)
 
 lint: venv
 	@printf "No linter configured yet.\n"
