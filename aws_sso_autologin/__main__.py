@@ -61,6 +61,8 @@ class AutologinApp:
         self._tray_host: Optional[TrayHost] = None
         self._tray_host_timer: Optional[QTimer] = None
         self._tray_host_loss_announced = False
+        self._global_error_source: Optional[str] = None
+        self._awaiting_initial_status = False
         self._tray_loss_behavior = os.getenv(
             "AWS_SSO_AUTOLOGIN_TRAY_LOSS_BEHAVIOR", "pause"
         ).strip().lower()
@@ -162,8 +164,8 @@ class AutologinApp:
             return
 
         if self._tray_host.ping():
-            if self._tray_host_loss_announced and self._tray is not None:
-                self._tray.set_global_error(None, "")
+            if self._tray_host_loss_announced:
+                self._clear_tray_global_error_if_source("tray-host")
                 self._tray_host_loss_announced = False
             return
 
@@ -175,8 +177,11 @@ class AutologinApp:
             f"({self._tray_host.consecutive_failures} consecutive failures)."
         )
 
-        if self._tray is not None:
-            self._tray.set_global_error(summary=TRAY_HOST_LOST_SUMMARY, details=details)
+        self._set_tray_global_error(
+            summary=TRAY_HOST_LOST_SUMMARY,
+            details=details,
+            source="tray-host",
+        )
 
         self._tray_host_loss_announced = True
 
@@ -188,6 +193,20 @@ class AutologinApp:
             self._tray.set_monitoring_enabled(False)
 
         logger.error("Tray host lost; monitoring paused")
+
+    def _set_tray_global_error(self, summary: str, details: str, source: str) -> None:
+        if self._tray is None:
+            return
+        self._tray.set_global_error(summary=summary, details=details)
+        self._global_error_source = source
+
+    def _clear_tray_global_error_if_source(self, source: str) -> None:
+        if self._tray is None:
+            return
+        if self._global_error_source != source:
+            return
+        self._tray.set_global_error(None, "")
+        self._global_error_source = None
     
     def _wire_signals(self) -> None:
         """Wire signals between components.
@@ -215,6 +234,9 @@ class AutologinApp:
                 last_login_time=datetime.now() if is_healthy else None,
             )
             self._tray.update_profile(status)
+            if self._awaiting_initial_status:
+                self._tray.set_syncing(False)
+                self._awaiting_initial_status = False
             logger.debug(f"AutologinApp: Status updated for {profile_name}: healthy={is_healthy}")
 
     def _on_toggle_monitoring(self, enabled: bool) -> None:
@@ -273,6 +295,8 @@ class AutologinApp:
             
             # Initialize tray with profiles
             if self._tray:
+                self._awaiting_initial_status = True
+                self._tray.set_syncing(True)
                 for config in self._profiles:
                     status = ProfileStatus(
                         profile_name=config.name,
@@ -332,27 +356,27 @@ class AutologinApp:
         
         # Load profiles
         if not self._load_profiles():
-            if self._tray is not None:
-                self._tray.set_global_error(
-                    summary=NO_PROFILES_SUMMARY,
-                    details="No SSO profiles detected. Monitoring profile sources for changes.",
-                )
+            self._set_tray_global_error(
+                summary=NO_PROFILES_SUMMARY,
+                details="No SSO profiles detected. Monitoring profile sources for changes.",
+                source="startup-no-profiles",
+            )
             logger.warning("No SSO profiles loaded; continuing in empty-state mode")
 
         # Start monitoring
         if not self._start_monitoring():
-            if self._tray is not None:
-                self._tray.set_global_error(
-                    summary=MONITORING_START_FAILED_SUMMARY,
-                    details="Failed to start monitoring loop.",
-                )
+            self._set_tray_global_error(
+                summary=MONITORING_START_FAILED_SUMMARY,
+                details="Failed to start monitoring loop.",
+                source="startup-monitoring",
+            )
             logger.error("Health monitoring failed to start; exiting")
             return 1
 
         if self._tray_host_timer is not None:
             self._tray_host_timer.start()
 
-        if self._tray is not None:
+        if self._tray is not None and not self._awaiting_initial_status:
             self._tray.set_syncing(False)
         
         # Run Qt event loop

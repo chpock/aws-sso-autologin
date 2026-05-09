@@ -23,6 +23,38 @@ from aws_sso_autologin.logger import get_logger
 logger = get_logger(__name__)
 
 
+def _run_subprocess_with_escalation(
+    command: List[str],
+    timeout: int,
+    env: Optional[dict[str, str]] = None,
+) -> Tuple[int, str, str]:
+    """Run command with terminate->grace->kill timeout escalation."""
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
+
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+        return process.returncode, stdout or "", stderr or ""
+    except subprocess.TimeoutExpired:
+        process.terminate()
+        try:
+            stdout, stderr = process.communicate(timeout=3)
+            raise AWSCliError(
+                f"AWS command timed out after {timeout}s and was terminated"
+            )
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate()
+            raise AWSCliError(
+                f"AWS command timed out after {timeout}s and required force kill"
+            )
+
+
 class SessionStatus(Enum):
     """Session status values."""
     UNKNOWN = "unknown"
@@ -83,25 +115,16 @@ def _run_aws_command(
     try:
         logger.debug(f"Running AWS command: {' '.join(full_command)}")
         
-        result = subprocess.run(
+        returncode, stdout, stderr = _run_subprocess_with_escalation(
             full_command,
-            capture_output=capture_output,
-            text=True,
             timeout=timeout,
         )
         
-        stdout = result.stdout if result.stdout else ""
-        stderr = result.stderr if result.stderr else ""
+        if returncode != 0:
+            logger.debug(f"AWS command failed with code {returncode}: {stderr[:200]}")
         
-        if result.returncode != 0:
-            logger.debug(f"AWS command failed with code {result.returncode}: {stderr[:200]}")
-        
-        return result.returncode, stdout, stderr
-        
-    except subprocess.TimeoutExpired:
-        error_msg = f"AWS command timed out after {timeout}s"
-        logger.error(error_msg)
-        raise AWSCliError(error_msg)
+        return returncode, stdout, stderr
+
     except FileNotFoundError:
         error_msg = "AWS CLI not found. Please ensure 'aws' is installed and in PATH"
         logger.error(error_msg)
@@ -235,20 +258,18 @@ def run_sso_login(
         logger.info(f"Starting SSO login for profile '{profile}'")
 
         full_command = ["aws"] + command
-        result = subprocess.run(
+        returncode, stdout, stderr = _run_subprocess_with_escalation(
             full_command,
-            env=env,
-            capture_output=True,
-            text=True,
             timeout=timeout,
+            env=env,
         )
 
-        if result.returncode == 0:
+        if returncode == 0:
             logger.info(f"SSO login successful for profile '{profile}'")
             return True, ""
 
-        error_msg = result.stderr.strip() if result.stderr else "Unknown error"
-        if wrapper_path and result.returncode in (126, 127):
+        error_msg = stderr.strip() if stderr else "Unknown error"
+        if wrapper_path and returncode in (126, 127):
             metadata = _wrapper_metadata(wrapper_path)
             error_msg = (
                 "Browser wrapper failed to execute. "
@@ -258,8 +279,8 @@ def run_sso_login(
         logger.error(f"SSO login failed for profile '{profile}': {error_msg[:200]}")
         return False, error_msg
 
-    except subprocess.TimeoutExpired:
-        error_msg = f"SSO login timed out after {timeout}s"
+    except AWSCliError as error:
+        error_msg = str(error)
         logger.error(error_msg)
         return False, error_msg
     except Exception as e:

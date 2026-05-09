@@ -2,6 +2,7 @@
 
 import os
 import stat
+import subprocess
 
 import pytest
 from datetime import datetime
@@ -109,27 +110,27 @@ def test_aws_cli_error_class():
 
 def test_run_sso_login_accepts_profile():
     """Test run_sso_login accepts profile parameter."""
-    with patch('subprocess.run') as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    with patch("aws_sso_autologin.aws._run_subprocess_with_escalation") as mock_run:
+        mock_run.return_value = (0, "", "")
         run_sso_login("test-profile")
-        # Should call subprocess with aws sso login --profile test-profile
         mock_run.assert_called_once()
-        args = mock_run.call_args
-        assert "test-profile" in str(args)
+        command = mock_run.call_args.args[0]
+        assert command[:4] == ["aws", "sso", "login", "--profile"]
+        assert command[4] == "test-profile"
 
 
 def test_check_session_valid_calls_aws_sts():
     """Test check_session_valid calls aws sts get-caller-identity."""
-    with patch('subprocess.run') as mock_run:
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout='{"Account": "123456789", "Arn": "arn:aws:sts::123456789:assumed-role/test"}',
-            stderr=""
+    with patch("aws_sso_autologin.aws._run_subprocess_with_escalation") as mock_run:
+        mock_run.return_value = (
+            0,
+            '{"Account": "123456789", "Arn": "arn:aws:sts::123456789:assumed-role/test"}',
+            "",
         )
         result = check_session_valid("test-profile")
         mock_run.assert_called_once()
-        args = mock_run.call_args
-        assert "sts" in str(args) or "get-caller-identity" in str(args)
+        command = mock_run.call_args.args[0]
+        assert command[:3] == ["aws", "sts", "get-caller-identity"]
 
 
 def test_discover_profiles_returns_profile_info():
@@ -167,16 +168,16 @@ def test_get_profile_sso_config_exists():
 def test_run_sso_login_browser_override_uses_secure_wrapper():
     wrapper_paths = []
 
-    def fake_run(command, env=None, capture_output=True, text=True, timeout=0):
+    def fake_run(command, timeout=0, env=None):
         assert command[:4] == ["aws", "sso", "login", "--profile"]
         wrapper_path = env["BROWSER"]
         wrapper_paths.append(wrapper_path)
         assert os.path.exists(wrapper_path)
         mode = stat.S_IMODE(os.stat(wrapper_path).st_mode)
         assert mode == 0o700
-        return MagicMock(returncode=0, stdout="", stderr="")
+        return (0, "", "")
 
-    with patch("subprocess.run", side_effect=fake_run):
+    with patch("aws_sso_autologin.aws._run_subprocess_with_escalation", side_effect=fake_run):
         success, error = run_sso_login("test-profile", browser="firefox --new-window")
 
     assert success is True
@@ -186,12 +187,31 @@ def test_run_sso_login_browser_override_uses_secure_wrapper():
 
 
 def test_run_sso_login_wrapper_failure_reports_diagnostics():
-    def fake_run(command, env=None, capture_output=True, text=True, timeout=0):
-        return MagicMock(returncode=126, stdout="", stderr="permission denied")
+    def fake_run(command, timeout=0, env=None):
+        return (126, "", "permission denied")
 
-    with patch("subprocess.run", side_effect=fake_run):
+    with patch("aws_sso_autologin.aws._run_subprocess_with_escalation", side_effect=fake_run):
         success, error = run_sso_login("test-profile", browser="firefox")
 
     assert success is False
     assert "wrapper" in error.lower()
     assert "permissions" in error.lower()
+
+
+def test_timeout_escalation_terminates_then_kills():
+    from aws_sso_autologin.aws import _run_subprocess_with_escalation
+
+    process = MagicMock()
+    process.communicate.side_effect = [
+        subprocess.TimeoutExpired(cmd=["aws"], timeout=1),
+        subprocess.TimeoutExpired(cmd=["aws"], timeout=3),
+        ("", ""),
+    ]
+
+    with patch("subprocess.Popen", return_value=process):
+        with pytest.raises(AWSCliError) as error:
+            _run_subprocess_with_escalation(["aws", "sts"], timeout=1)
+
+    process.terminate.assert_called_once()
+    process.kill.assert_called_once()
+    assert "force kill" in str(error.value)

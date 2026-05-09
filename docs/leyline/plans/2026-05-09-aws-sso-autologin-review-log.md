@@ -477,3 +477,65 @@ runtime_heartbeat_hook_contract: pass
 ```
 125 passed in 2.25s
 ```
+
+## Task-granular remediation evidence (round 2 addendum)
+
+### Failing-test output - task 9
+
+```
+AssertionError: expected timeout 180, got 300
+```
+
+### Systematic-debugging record - task 9
+- Root cause (one sentence, plain English): Task 9 runtime path still executed login via legacy CLI wrapper without canonical timeout/wrapper contract.
+- Falsifying test: pre-fix contract script asserted login timeout policy and failed (`expected timeout 180, got 300`).
+- Hypothesis: Delegating `CLIExecutor.execute_login` to `run_sso_login(... timeout=180)` will align runtime login path with Task 9 security/timeout contract.
+- Fix: Updated `aws_sso_autologin/cli.py` to call `run_sso_login`; introduced `SSO_LOGIN_TIMEOUT_SECONDS = 180` in constants.
+- Regression coverage: `pytest tests/test_cli.py -q` (all pass).
+
+### Post-implementation verification output - task 9
+
+```
+login_timeout_contract: pass
+```
+
+### Failing-test output - task 10
+
+```
+AssertionError: missing runtime tray-host heartbeat hook
+AssertionError: expected continue-in-empty-state (0), got 1
+```
+
+### Systematic-debugging record - task 10
+- Root cause (one sentence, plain English): Task 10 app lifecycle never instantiated tray-host heartbeat checks and still treated empty-profile startup as fatal.
+- Falsifying test: pre-fix contract scripts failed for missing heartbeat hook and empty-state continuation behavior.
+- Hypothesis: Wiring tray-host monitor/timer into `AutologinApp` and converting no-profile startup to global-error continuation will satisfy Task 10 runtime contracts.
+- Fix: Added tray-host monitor methods, timer start/stop lifecycle, source-aware global-error handling, and empty-state continuation in `aws_sso_autologin/__main__.py`.
+- Regression coverage: `pytest tests/test_main.py -q` (all pass).
+
+### Post-implementation verification output - task 10
+
+```
+runtime_heartbeat_hook_contract: pass
+empty_state_startup_contract: pass
+```
+
+### Failing-test output - task 5
+
+```
+AssertionError: expected distinct icon states, got enabled=0, paused=0
+```
+
+### Systematic-debugging record - task 5
+- Root cause (one sentence, plain English): Task 5 state machine tracked icon semantics internally but always rendered a blank icon and could emit unstructured default diagnostics fields.
+- Falsifying test: pre-fix contract script failed icon differentiation check (`enabled=0, paused=0`).
+- Hypothesis: Rendering concrete per-state icons and structured fallback diagnostics payload will make Task 5 surfaces conform to icon/dialog contracts.
+- Fix: Added state-icon rendering map, structured fallback diagnostics `key: value` lines, and explicit close-focus behavior in `aws_sso_autologin/tray.py`.
+- Regression coverage: `pytest tests/test_tray.py -q` (all pass).
+
+### Post-implementation verification output - task 5
+
+```
+icon_state_rendering_contract: pass
+9 passed, 13 deselected in 0.18s
+```

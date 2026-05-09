@@ -222,6 +222,7 @@ def test_tray_host_recovery_clears_global_error():
     app = AutologinApp([])
     app._tray = Mock()
     app._tray_host_loss_announced = True
+    app._global_error_source = "tray-host"
 
     host = Mock()
     host.ping.return_value = True
@@ -230,3 +231,44 @@ def test_tray_host_recovery_clears_global_error():
     app._on_tray_host_heartbeat()
 
     app._tray.set_global_error.assert_called_once_with(None, "")
+
+
+def test_tray_host_recovery_does_not_clear_unrelated_global_error():
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    app = AutologinApp([])
+    app._tray = Mock()
+    app._tray_host_loss_announced = True
+    app._global_error_source = "startup-monitoring"
+
+    host = Mock()
+    host.ping.return_value = True
+    app._tray_host = host
+
+    app._on_tray_host_heartbeat()
+
+    app._tray.set_global_error.assert_not_called()
+
+
+def test_load_profiles_sets_syncing_until_first_status_update():
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    app = AutologinApp([])
+    app._tray = Mock()
+    app._health_operator = Mock()
+
+    profile_info = Mock()
+    profile_info.name = "example"
+    profile_info.sso_start_url = "https://start"
+    profile_info.sso_region = "us-east-1"
+
+    with patch("aws_sso_autologin.__main__.discover_profiles", return_value=[profile_info]):
+        loaded = app._load_profiles()
+
+    assert loaded is True
+    app._tray.set_syncing.assert_called_once_with(True)
+    assert app._awaiting_initial_status is True
+
+    app._on_status_change("example", True)
+    assert app._awaiting_initial_status is False
+    app._tray.set_syncing.assert_called_with(False)
