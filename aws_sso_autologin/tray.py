@@ -11,10 +11,12 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QFrame,
     QLabel,
     QHeaderView,
     QMenu,
     QPlainTextEdit,
+    QScrollArea,
     QSystemTrayIcon,
     QTableWidget,
     QTableWidgetItem,
@@ -242,8 +244,37 @@ class ErrorDetailsDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        # Status header region per UX spec
-        if command_executed is None:
+        # Three-region layout per UX spec
+        # Region 1: Status header
+        self._status_header = self._build_status_header()
+        layout.addWidget(self._status_header)
+
+        # Region 2: Smart fields region
+        self._smart_fields_region = self._build_smart_fields_region()
+        layout.addWidget(self._smart_fields_region)
+
+        # Region 3: Details textarea
+        self._text_edit = QPlainTextEdit()
+        self._text_edit.setReadOnly(True)
+        self._text_edit.setPlainText(self._format_sections(sections))
+        layout.addWidget(self._text_edit, 1)
+
+        # Add close button
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(self._on_close)
+        layout.addWidget(buttons)
+
+        # Set initial focus to details textarea per UX spec accessibility contract
+        self._text_edit.setFocus()
+
+    def _build_status_header(self) -> QFrame:
+        """Build status header region based on execution state."""
+        frame = QFrame(self)
+        frame.setObjectName("diagnostics-status-header")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        if self._command_executed is None:
             # Unknown execution state copy contract per UX spec lines 132-134
             status_title = QLabel("Unknown execution state")
             status_title.setStyleSheet("font-weight: bold; font-size: 14px; padding: 4px 0;")
@@ -261,19 +292,18 @@ class ErrorDetailsDialog(QDialog):
             status_title.setStyleSheet("font-weight: bold; font-size: 14px; padding: 4px 0;")
             layout.addWidget(status_title)
 
-        # Create readonly text area with all error details
-        self._text_edit = QPlainTextEdit()
-        self._text_edit.setReadOnly(True)
-        self._text_edit.setPlainText(self._format_sections(sections))
-        layout.addWidget(self._text_edit)
+        return frame
 
-        # Add close button
-        buttons = QDialogButtonBox(QDialogButtonBox.Close)
-        buttons.rejected.connect(self._on_close)
-        layout.addWidget(buttons)
+    def _build_smart_fields_region(self) -> QScrollArea:
+        """Build smart fields region as scrollable area."""
+        area = QScrollArea(self)
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.NoFrame)
 
-        # Set initial focus to details textarea per UX spec accessibility contract
-        self._text_edit.setFocus()
+        container = QWidget()
+        area.setWidget(container)
+
+        return area
 
     def _format_sections(self, sections: dict[str, str]) -> str:
         """Format sections into a single text block for display and copying."""
