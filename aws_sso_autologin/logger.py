@@ -36,6 +36,10 @@ _KV_SECRET_PAIR = re.compile(
 )
 _AUTH_BEARER = re.compile(r"(?i)(authorization\s*:\s*bearer\s+)([^\s,;]+)")
 _AUTH_BASIC = re.compile(r"(?i)(authorization\s*:\s*basic\s+)([^\s,;]+)")
+_AWS_ACCESS_KEY_ID = re.compile(r"\b(AKIA[0-9A-Z]{16})\b")
+_AWS_URL_TOKEN = re.compile(
+    r"(?i)\b(X-Amz-(Signature|Security-Token|Credential))=([^&\s]+)"
+)
 
 
 def sanitize_trace_payload(value: Any, max_len: int = 2000) -> dict[str, Any]:
@@ -59,6 +63,16 @@ def sanitize_trace_payload(value: Any, max_len: int = 2000) -> dict[str, Any]:
     redacted = updated
 
     updated = _KV_SECRET_PAIR.sub(r"\1=<redacted>", redacted)
+    if updated != redacted:
+        redacted_applied = True
+    redacted = updated
+
+    updated = _AWS_ACCESS_KEY_ID.sub("<redacted>", redacted)
+    if updated != redacted:
+        redacted_applied = True
+    redacted = updated
+
+    updated = _AWS_URL_TOKEN.sub(r"\1=<redacted>", redacted)
     if updated != redacted:
         redacted_applied = True
     redacted = updated

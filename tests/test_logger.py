@@ -122,3 +122,22 @@ def test_sanitize_trace_payload_redacts_additional_secret_keys():
     assert "tok-123" not in sanitized["value"]
     assert "super-secret" not in sanitized["value"]
     assert sanitized["redaction_applied"] is True
+
+
+def test_sanitize_trace_payload_redacts_aws_access_key_id_pattern():
+    payload = "caller key is AKIAIOSFODNN7EXAMPLE"
+
+    sanitized = sanitize_trace_payload(payload)
+
+    assert "AKIAIOSFODNN7EXAMPLE" not in sanitized["value"]
+    assert sanitized["redaction_applied"] is True
+
+
+def test_sanitize_trace_payload_redacts_presigned_url_signature():
+    payload = "https://example.com?X-Amz-Signature=abcdef1234567890&X-Amz-Security-Token=tok123"
+
+    sanitized = sanitize_trace_payload(payload)
+
+    assert "abcdef1234567890" not in sanitized["value"]
+    assert "tok123" not in sanitized["value"]
+    assert sanitized["redaction_applied"] is True

@@ -1,5 +1,6 @@
 """Session checker for AWS SSO."""
 
+import time
 from typing import Optional
 
 from aws_sso_autologin.aws import _run_subprocess_with_escalation
@@ -147,6 +148,7 @@ class SessionChecker:
         """
         # This is a simplified implementation
         # In reality, we'd parse the SSO token expiration
+        started_at = time.time()
         try:
             logger.debug(
                 "session remaining time probe started",
@@ -166,11 +168,27 @@ class SessionChecker:
             )
             # For now, return a default value
             # In production, we'd parse the actual expiration
+            logger.debug(
+                "session remaining time probe completed",
+                extra={
+                    "event": "session_remaining_probe_completed",
+                    "profile": profile.name,
+                    "status": "passed",
+                    "seconds_remaining": 3600,
+                    "duration_ms": int((time.time() - started_at) * 1000),
+                },
+            )
             return 3600  # Default 1 hour
         except Exception as exc:
             logger.debug(
                 "session remaining time probe failed",
-                extra={"event": "session_remaining_probe_completed", "profile": profile.name, "status": "failed", "error": str(exc)},
+                extra={
+                    "event": "session_remaining_probe_completed",
+                    "profile": profile.name,
+                    "status": "failed",
+                    "error": str(exc),
+                    "duration_ms": int((time.time() - started_at) * 1000),
+                },
             )
             return None
 

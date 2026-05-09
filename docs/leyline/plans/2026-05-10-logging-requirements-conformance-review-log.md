@@ -218,3 +218,128 @@ Date: 2026-05-10
   - `DEBUG [aws_sso_autologin.aws] subprocess completed`
   - `INFO [aws_sso_autologin.aws] profile discovery completed`
   - `INFO [__main__] AutologinApp: Starting Qt event loop`
+
+## Branch-level code review - round 4
+
+### Findings
+- F1 (Critical): sanitizer does not redact some AWS key/signature token formats.
+- F2 (Important): remaining-time probe lacks success completion event.
+- F3 (Important): final verification evidence should include full command outputs.
+
+### Response F1
+- Claim (restated): trace sanitizer still allows some AWS credential/signature formats through.
+- Verification: confirmed no explicit handling for `AKIA...` key-id pattern or `X-Amz-Signature` style query tokens.
+- Decision: accept.
+- Reasoning: this is a secret-leak path and merge blocker.
+- Implementation: added explicit `AKIA...` and `X-Amz-(Signature|Security-Token|Credential)` redaction patterns in `aws_sso_autologin/logger.py`; added regression tests in `tests/test_logger.py`.
+
+### Response F2
+- Claim (restated): `_get_remaining_time()` logs started event but no success completion event.
+- Verification: success path returned immediately without completion event.
+- Decision: accept.
+- Reasoning: lifecycle contract requires completion marker on success and failure paths.
+- Implementation: added `session_remaining_probe_completed` success event with `status=passed`, `seconds_remaining`, and `duration_ms` in `aws_sso_autologin/checker.py`.
+
+### Response F3
+- Claim (restated): verification artifacts need full final outputs for targeted tests, full suite, and runtime run.
+- Verification: previous sections used selective excerpts.
+- Decision: accept.
+- Reasoning: strengthen close-out auditability for branch-level gate.
+- Implementation: appended full outputs below from final HEAD verification runs.
+
+## Final verification outputs (full, round 4)
+
+### Targeted tests
+Command:
+` .venv/bin/pytest tests/test_logger.py tests/test_checker.py -q `
+
+Output:
+`...................                                                      [100%]`
+`19 passed in 0.04s`
+
+### Full suite
+Command:
+` make test `
+
+Output:
+`============================= test session starts ==============================`
+`platform linux -- Python 3.14.4, pytest-9.0.3, pluggy-1.6.0`
+`rootdir: /w/projects/aws-sso-autologin/.worktrees/feat/logging-requirements-conformance`
+`configfile: pyproject.toml`
+`testpaths: tests`
+`collected 231 items`
+``
+`tests/test_aws.py ....................                                   [  8%]`
+`tests/test_checker.py ......                                             [ 11%]`
+`tests/test_classifier.py .                                               [ 11%]`
+`tests/test_cli.py ..                                                     [ 12%]`
+`tests/test_cli_integration.py ......                                     [ 15%]`
+`tests/test_constants.py .........                                        [ 19%]`
+`tests/test_daemon_marker.py ....                                         [ 20%]`
+`tests/test_integration_policy.py .......                                 [ 23%]`
+`tests/test_logger.py .............                                       [ 29%]`
+`tests/test_main.py ....................................                  [ 45%]`
+`tests/test_mode_policy.py ........                                       [ 48%]`
+`tests/test_operator.py ................................                  [ 62%]`
+`tests/test_service.py ......................                             [ 71%]`
+`tests/test_settings.py ...                                               [ 73%]`
+`tests/test_tray.py ..............................................        [ 93%]`
+`tests/test_version.py ..                                                 [ 93%]`
+`tests/test_versioning.py ....                                            [ 95%]`
+`tests/test_watchdog.py ..........                                        [100%]`
+``
+`============================= 231 passed in 4.09s ==============================`
+
+### Runtime startup/preflight
+Command:
+` make run `
+
+Output:
+`Running with automatic mode detection (safe in automation contexts)...`
+`2026-05-10 02:54:15 DEBUG [__main__] AutologinApp: Initialized`
+`2026-05-10 02:54:15 INFO [__main__] Application startup`
+`2026-05-10 02:54:16 DEBUG [__main__] AutologinApp: QApplication initialized`
+`2026-05-10 02:54:16 DEBUG [__main__] Installed system signal handlers`
+`2026-05-10 02:54:16 DEBUG [aws_sso_autologin.service] tray host env probe`
+`2026-05-10 02:54:16 DEBUG [aws_sso_autologin.service] tray host detected`
+`2026-05-10 02:54:16 DEBUG [aws_sso_autologin.service] tray host env probe`
+`2026-05-10 02:54:16 DEBUG [aws_sso_autologin.service] tray host detected`
+`2026-05-10 02:54:16 DEBUG [aws_sso_autologin.service] tray host preflight compatible`
+`2026-05-10 02:54:16 INFO [__main__] Detected tray host: Generic Desktop`
+`2026-05-10 02:54:16 DEBUG [__main__] AutologinApp: StatusTray created`
+`2026-05-10 02:54:16 DEBUG [__main__] AutologinApp: LoginOperator created`
+`2026-05-10 02:54:16 DEBUG [__main__] AutologinApp: SessionOperator created`
+`2026-05-10 02:54:16 DEBUG [__main__] AutologinApp: HealthOperator created`
+`2026-05-10 02:54:16 DEBUG [aws_sso_autologin.service] tray host env probe`
+`2026-05-10 02:54:16 DEBUG [aws_sso_autologin.service] tray host detected`
+`2026-05-10 02:54:16 DEBUG [aws_sso_autologin.service] tray host preflight compatible`
+`2026-05-10 02:54:16 DEBUG [aws_sso_autologin.service] tray host env probe`
+`2026-05-10 02:54:16 DEBUG [aws_sso_autologin.service] tray host detected`
+`2026-05-10 02:54:16 DEBUG [__main__] AutologinApp: Signals wired`
+`2026-05-10 02:54:16 DEBUG [aws_sso_autologin.aws] aws command started`
+`2026-05-10 02:54:16 DEBUG [aws_sso_autologin.aws] subprocess started`
+`2026-05-10 02:54:16 DEBUG [aws_sso_autologin.aws] subprocess completed`
+`2026-05-10 02:54:16 DEBUG [aws_sso_autologin.aws] aws command completed`
+`2026-05-10 02:54:16 DEBUG [aws_sso_autologin.aws] profile names discovered`
+`2026-05-10 02:54:16 DEBUG [aws_sso_autologin.aws] aws command started`
+`2026-05-10 02:54:16 DEBUG [aws_sso_autologin.aws] subprocess started`
+`2026-05-10 02:54:16 DEBUG [aws_sso_autologin.aws] subprocess completed`
+`2026-05-10 02:54:16 WARNING [aws_sso_autologin.aws] aws command completed with non-zero exit`
+`2026-05-10 02:54:16 DEBUG [aws_sso_autologin.aws] aws command started`
+`2026-05-10 02:54:16 DEBUG [aws_sso_autologin.aws] subprocess started`
+`2026-05-10 02:54:17 DEBUG [aws_sso_autologin.aws] subprocess completed`
+`2026-05-10 02:54:17 WARNING [aws_sso_autologin.aws] aws command completed with non-zero exit`
+`2026-05-10 02:54:17 INFO [aws_sso_autologin.aws] profile discovery completed`
+`2026-05-10 02:54:17 WARNING [__main__] No SSO profiles found in AWS config`
+`2026-05-10 02:54:17 WARNING [__main__] No SSO profiles loaded; continuing in empty-state mode`
+`2026-05-10 02:54:17 INFO [aws_sso_autologin.operator] HealthOperator started`
+`2026-05-10 02:54:17 INFO [__main__] AutologinApp: Health monitoring started`
+`2026-05-10 02:54:17 INFO [__main__] AutologinApp: Starting Qt event loop`
+`2026-05-10 02:54:42 INFO [__main__] AutologinApp: Shutting down`
+`2026-05-10 02:54:42 INFO [__main__] Stopping health monitoring`
+`2026-05-10 02:54:42 INFO [aws_sso_autologin.operator] HealthOperator stopped`
+`2026-05-10 02:54:42 INFO [__main__] Stopping tray-host heartbeat timer`
+`2026-05-10 02:54:42 INFO [__main__] Stopping signal pump timer`
+`2026-05-10 02:54:42 INFO [__main__] Closing tray surface`
+`2026-05-10 02:54:42 INFO [__main__] Requesting Qt event loop exit`
+`2026-05-10 02:54:42 DEBUG [__main__] Restored previous system signal handlers`
