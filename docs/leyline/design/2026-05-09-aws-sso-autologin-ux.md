@@ -12,6 +12,7 @@ UX spec approved - round 5 - 2026-05-09
 UX spec approved - round 6 - 2026-05-09
 UX spec approved - round 7 - 2026-05-09
 UX spec approved - round 8 - 2026-05-09
+UX spec approved - round 9 - 2026-05-09
 Design-interrogation pass complete - round 1 - 2026-05-09
 
 ## Design-interrogation notes
@@ -101,6 +102,14 @@ Retention path: if incident evidence for the row has aged out or been evicted, d
 
 Failure path: if performance target is missed at high cardinality, this is treated as UX regression against acceptance criteria.
 
+### Flow 7 - Termination signal handling (`Ctrl+C` / `SIGTERM`)
+1. App is running in a console session and receives `SIGINT` (`Ctrl+C`) or `SIGTERM`.
+2. Runtime logs explicit structured event `system_signal_received` including signal name and planned action `graceful_shutdown`.
+3. App executes the same graceful shutdown sequence as tray `Quit`.
+4. Runtime logs each shutdown action stage and requests Qt event-loop exit.
+
+Failure path: if another termination signal is received while graceful shutdown is in progress, runtime logs structured event `system_signal_force_exit` and exits immediately with code `130`.
+
 ## State matrix
 Preflight tray-host failure is a startup halt path; in that path tray surfaces are not created, so matrix rows are N/A and app exits with actionable stdout guidance.
 
@@ -112,6 +121,8 @@ Preflight tray-host failure is a startup halt path; in that path tray surfaces a
 | Profile overflow submenu | N/A - not shown when tracked profiles <= 40 | N/A - container does not represent command state | N/A - error states remain on individual profile rows | Visible and selectable only when tracked profiles > 40; labels are deterministic range buckets | N/A - permission outcomes stay on profile rows | N/A - offline outcomes stay on profile rows |
 | Error details dialog | Not shown | Optional brief `Loading diagnostics...` only if data assembly is asynchronous | Shows structured details in order: Summary, Incident evidence, Command, Exit code, stderr, stdout, Timestamp; Summary class is explicit (`AWS CLI unavailable`, `AWS CLI v2 required`, `Configuration version unsupported`, `Configuration invalid`, `Configuration file trust policy failed`, `Classifier governance check failed`, `Rollback artifact verification failed`, `Browser wrapper execution failed`) and includes explicit stream truncation/omitted-byte notices when caps are hit. Summary may include concise governance status lines (for example: `Release gate blocked: classifier governance incomplete`). Incident evidence block includes retention bounds (latest 50 incidents, max 24h); if evidence is unavailable, show explicit `retention window exceeded` notice. | N/A - not opened for OK states | Shows permission-specific diagnostics details | Shows connectivity/offline diagnostics details |
 | Quit row | N/A - row always exists | N/A | N/A | Executes graceful shutdown | N/A | N/A |
+
+Signal-triggered shutdown follows the same success semantics as Quit row and adds explicit `system_signal_received` / `shutdown_action` logs for observability.
 
 ## Status precedence
 - Global status precedence is fixed to: `global error > profile error/warning > syncing > ok`.

@@ -1,5 +1,7 @@
 """Tests for the main entry point module."""
 
+import signal
+
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
@@ -25,6 +27,65 @@ def test_autologin_app_with_args():
     args = ["--test"]
     app = AutologinApp(args)
     assert app._args == args
+
+
+def test_handle_system_signal_logs_and_requests_graceful_shutdown():
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    app = AutologinApp([])
+
+    with patch.object(app, "shutdown") as mock_shutdown:
+        with patch("aws_sso_autologin.__main__.logger.info") as mock_info:
+            app._handle_system_signal(signal.SIGINT, None)
+
+    mock_shutdown.assert_called_once_with(reason="signal:SIGINT")
+    assert app._signal_shutdown_requested is True
+    assert any(
+        call.kwargs.get("extra", {}).get("event") == "system_signal_received"
+        and call.kwargs.get("extra", {}).get("signal") == "SIGINT"
+        for call in mock_info.call_args_list
+    )
+
+
+def test_handle_system_signal_second_interrupt_forces_exit():
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    app = AutologinApp([])
+    app._signal_shutdown_requested = True
+    app._force_exit = Mock()
+
+    with patch("aws_sso_autologin.__main__.logger.warning") as mock_warning:
+        app._handle_system_signal(signal.SIGINT, None)
+
+    app._force_exit.assert_called_once_with(130)
+    assert any(
+        call.kwargs.get("extra", {}).get("event") == "system_signal_force_exit"
+        and call.kwargs.get("extra", {}).get("signal") == "SIGINT"
+        for call in mock_warning.call_args_list
+    )
+
+
+def test_shutdown_is_idempotent_and_logs_duplicate_request():
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    app = AutologinApp([])
+    app._health_operator = Mock()
+    app._tray_host_timer = Mock()
+    app._tray = Mock()
+    app._app = Mock()
+
+    with patch("aws_sso_autologin.__main__.logger.info") as mock_info:
+        app.shutdown(reason="signal:SIGTERM")
+        app.shutdown(reason="signal:SIGTERM")
+
+    app._health_operator.stop.assert_called_once()
+    app._tray_host_timer.stop.assert_called_once()
+    app._tray.close.assert_called_once()
+    app._app.quit.assert_called_once()
+    assert any(
+        call.kwargs.get("extra", {}).get("event") == "shutdown_already_in_progress"
+        for call in mock_info.call_args_list
+    )
 
 
 def test_autologin_app_detect_tray_host_success():

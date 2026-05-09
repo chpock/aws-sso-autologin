@@ -12,6 +12,7 @@ Product spec approved - round 5 - 2026-05-09
 Product spec approved - round 6 - 2026-05-09
 Product spec approved - round 7 - 2026-05-09
 Product spec approved - round 8 - 2026-05-09
+Product spec approved - round 9 - 2026-05-09
 
 ## Problem
 Users with multiple AWS SSO profiles lose active sessions during normal work and must manually run `aws sso login` per profile. This tool should run as a tray-only Linux/Wayland desktop app, monitor SSO session validity, and perform controlled auto-login when an SSO session is explicitly expired or invalid.
@@ -151,6 +152,12 @@ Implement Approach A. It matches current requirements with the best complexity-t
   - when active work completes, run one coalesced cycle immediately,
   - additional missed ticks are collapsed rather than replayed,
   - pause/disable clears pending coalesced work and blocks new starts.
+
+### System signal handling
+- The runtime installs explicit handlers for `SIGINT` and `SIGTERM` after Qt initialization.
+- On first termination signal, the app must log structured event `system_signal_received` with signal name and action `graceful_shutdown`, then execute the standard shutdown path.
+- Shutdown path must log structured `shutdown_started` and per-step `shutdown_action` entries for operator stop, timer stop, tray close, and Qt event-loop quit request.
+- If a second termination signal arrives while shutdown is already in progress, the app must log structured event `system_signal_force_exit` and perform immediate forced process exit with code `130`.
 
 ### Browser override per profile
 - `config.yaml` defines browser override as an argument list per profile.

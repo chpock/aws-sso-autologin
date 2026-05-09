@@ -1,6 +1,7 @@
 """Main entry point for AWS SSO Autologin application."""
 
 import os
+import signal
 import sys
 from datetime import datetime
 from typing import Optional, List
@@ -68,6 +69,11 @@ class AutologinApp:
         self._tray_host_loss_announced = False
         self._global_error_source: Optional[str] = None
         self._awaiting_initial_status = False
+        self._is_shutting_down = False
+        self._signal_shutdown_requested = False
+        self._signal_handlers_installed = False
+        self._previous_signal_handlers = {}
+        self._force_exit = os._exit
         self._tray_loss_behavior = os.getenv(
             "AWS_SSO_AUTOLOGIN_TRAY_LOSS_BEHAVIOR", "pause"
         ).strip().lower()
@@ -443,6 +449,8 @@ class AutologinApp:
         # Initialize Qt
         if not self._initialize_qt():
             return 1
+
+        self._install_signal_handlers()
         
         # Detect tray host
         if not self._detect_tray_host():
@@ -490,22 +498,117 @@ class AutologinApp:
         
         # Run Qt event loop
         logger.info("AutologinApp: Starting Qt event loop")
-        return self._app.exec()
-    
-    def shutdown(self) -> None:
+        try:
+            return self._app.exec()
+        finally:
+            self._restore_signal_handlers()
+
+    def _install_signal_handlers(self) -> None:
+        if self._signal_handlers_installed:
+            return
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            self._previous_signal_handlers[sig] = signal.getsignal(sig)
+            signal.signal(sig, self._handle_system_signal)
+
+        self._signal_handlers_installed = True
+        logger.debug(
+            "Installed system signal handlers",
+            extra={
+                "event": "signal_handlers_installed",
+                "signals": ["SIGINT", "SIGTERM"],
+            },
+        )
+
+    def _restore_signal_handlers(self) -> None:
+        if not self._signal_handlers_installed:
+            return
+
+        for sig, handler in self._previous_signal_handlers.items():
+            signal.signal(sig, handler)
+
+        self._previous_signal_handlers.clear()
+        self._signal_handlers_installed = False
+        logger.debug(
+            "Restored previous system signal handlers",
+            extra={"event": "signal_handlers_restored"},
+        )
+
+    def _handle_system_signal(self, signum: int, _frame: object) -> None:
+        signal_name = signal.Signals(signum).name
+
+        if self._signal_shutdown_requested:
+            logger.warning(
+                "Second termination signal received; forcing immediate exit",
+                extra={
+                    "event": "system_signal_force_exit",
+                    "signal": signal_name,
+                    "action": "force_exit",
+                    "exit_code": 130,
+                },
+            )
+            self._force_exit(130)
+            return
+
+        self._signal_shutdown_requested = True
+        logger.info(
+            "Termination signal received; starting graceful shutdown",
+            extra={
+                "event": "system_signal_received",
+                "signal": signal_name,
+                "action": "graceful_shutdown",
+            },
+        )
+        self.shutdown(reason=f"signal:{signal_name}")
+
+    def shutdown(self, reason: str = "user_request") -> None:
         """Shutdown the application and cleanup resources."""
-        logger.info("AutologinApp: Shutting down")
+        if self._is_shutting_down:
+            logger.info(
+                "Shutdown already in progress",
+                extra={
+                    "event": "shutdown_already_in_progress",
+                    "reason": reason,
+                    "action": "ignore_duplicate_request",
+                },
+            )
+            return
+
+        self._is_shutting_down = True
+        logger.info(
+            "AutologinApp: Shutting down",
+            extra={
+                "event": "shutdown_started",
+                "reason": reason,
+            },
+        )
         
         if self._health_operator:
+            logger.info(
+                "Stopping health monitoring",
+                extra={"event": "shutdown_action", "action": "stop_health_monitoring"},
+            )
             self._health_operator.stop()
 
         if self._tray_host_timer is not None:
+            logger.info(
+                "Stopping tray-host heartbeat timer",
+                extra={"event": "shutdown_action", "action": "stop_tray_host_timer"},
+            )
             self._tray_host_timer.stop()
 
         if self._tray:
+            logger.info(
+                "Closing tray surface",
+                extra={"event": "shutdown_action", "action": "close_tray"},
+            )
             self._tray.close()
-        
+
         if self._app:
+            logger.info(
+                "Requesting Qt event loop exit",
+                extra={"event": "shutdown_action", "action": "quit_qt_event_loop"},
+            )
             self._app.quit()
 
 
@@ -523,8 +626,15 @@ def main(args: Optional[List[str]] = None) -> int:
     try:
         return app.run()
     except KeyboardInterrupt:
-        logger.info("Interrupted by user")
-        app.shutdown()
+        logger.info(
+            "Interrupted by user",
+            extra={
+                "event": "system_signal_received",
+                "signal": "SIGINT",
+                "action": "graceful_shutdown",
+            },
+        )
+        app.shutdown(reason="signal:SIGINT")
         return 0
     except Exception as e:
         logger.error(f"Unhandled exception: {e}")
