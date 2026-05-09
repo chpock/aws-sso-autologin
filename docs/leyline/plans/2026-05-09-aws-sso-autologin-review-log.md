@@ -638,3 +638,41 @@ Exception: doc-only task - no failing test (per plan exception).
 ```
 README created and validated against plan sections.
 ```
+
+## Branch-level code review (round 3)
+
+### Findings
+- F20 (Critical): `SessionChecker` used direct timeout handling without terminate->grace->kill escalation (`aws_sso_autologin/checker.py`).
+- F21 (Important): Logger formatter was plain text instead of structured stdout logging (`aws_sso_autologin/logger.py`).
+
+### Response F20
+- Claim (restated): `sts_check` execution path in checker must use deterministic timeout escalation consistent with command contract.
+- Verification: `checker.py` used `subprocess.run(... timeout=10)` directly, bypassing escalation helper used in `aws.py`.
+- Decision: accept
+- Reasoning: Timeout policy applies to all AWS command paths, including checker command execution.
+- Re-dispatch or escalation (push-back on Critical only): N/A
+- Sibling review re-dispatch (if fix crossed concerns): N/A
+- Implementation: Implemented in working tree (uncommitted): `aws_sso_autologin/checker.py`, `tests/test_checker.py` (indirect coverage), `tests/test_aws.py` (escalation coverage).
+
+### Systematic-debugging record - task 7
+- Root cause (one sentence, plain English): Session checker kept an isolated subprocess timeout implementation that did not follow shared escalation policy.
+- Falsifying test: branch-level code review finding F20 on range `5fd6c44..9d9859d` flagged direct `subprocess.run(... timeout=...)` path in checker.
+- Hypothesis: Replacing checker command calls with shared `_run_subprocess_with_escalation` will align timeout behavior across `sts_check` paths.
+- Fix: Updated checker command calls to use `_run_subprocess_with_escalation` and classify timeout/check errors from unified error surface.
+- Regression coverage: `pytest tests/test_checker.py tests/test_aws.py -q`.
+
+### Response F21
+- Claim (restated): Logs should be structured stdout records for predictable operations telemetry ingestion.
+- Verification: `logger.py` used plain formatter string `'%(asctime)s - %(name)s - %(levelname)s - %(message)s'`.
+- Decision: accept
+- Reasoning: Product spec identifies structured stdout logs as primary observability surface.
+- Re-dispatch or escalation (push-back on Critical only): N/A
+- Sibling review re-dispatch (if fix crossed concerns): N/A
+- Implementation: Implemented in working tree (uncommitted): `aws_sso_autologin/logger.py`, `tests/test_logger.py`.
+
+### Post-implementation verification output - task 7
+
+```
+pytest tests/test_checker.py tests/test_aws.py tests/test_logger.py -q
+all tests passed
+```

@@ -1,5 +1,6 @@
 """Tests for logger module."""
 
+import json
 import logging
 import sys
 
@@ -30,3 +31,23 @@ def test_set_debug_mode():
     assert logger.level == logging.DEBUG
     set_debug_mode(False)
     assert logger.level == logging.INFO
+
+
+def test_logger_uses_structured_json_formatter():
+    logger = get_logger("test_structured")
+    formatter = logger.handlers[0].formatter
+    record = logger.makeRecord(
+        name=logger.name,
+        level=logging.INFO,
+        fn="test.py",
+        lno=1,
+        msg="structured message",
+        args=(),
+        exc_info=None,
+    )
+
+    payload = json.loads(formatter.format(record))
+    assert payload["logger"] == "test_structured"
+    assert payload["level"] == "INFO"
+    assert payload["message"] == "structured message"
+    assert "timestamp" in payload

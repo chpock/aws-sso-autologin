@@ -1,11 +1,29 @@
 """Logging utilities."""
 
+import json
 import logging
 import sys
 from typing import Optional, Set
 
 # Track all loggers created by get_logger
 _created_loggers: Set[logging.Logger] = set()
+
+
+class StructuredFormatter(logging.Formatter):
+    """JSON formatter for structured stdout logs."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "timestamp": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
+            "logger": record.name,
+            "level": record.levelname,
+            "message": record.getMessage(),
+        }
+
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+
+        return json.dumps(payload, sort_keys=True)
 
 
 def get_logger(name: str, level: Optional[int] = None) -> logging.Logger:
@@ -30,9 +48,7 @@ def get_logger(name: str, level: Optional[int] = None) -> logging.Logger:
         handler = logging.StreamHandler(sys.stdout)
         handler.setLevel(level)
         
-        formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        )
+        formatter = StructuredFormatter()
         handler.setFormatter(formatter)
         
         logger.addHandler(handler)
