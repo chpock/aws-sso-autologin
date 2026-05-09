@@ -112,3 +112,13 @@ def test_sanitize_trace_payload_redacts_bearer_authorization():
     assert "Authorization" in sanitized["value"]
     assert "<redacted>" in sanitized["value"]
     assert sanitized["redaction_applied"] is True
+
+
+def test_sanitize_trace_payload_redacts_additional_secret_keys():
+    payload = '{"aws_session_token":"tok-123","client_secret":"super-secret"}'
+
+    sanitized = sanitize_trace_payload(payload)
+
+    assert "tok-123" not in sanitized["value"]
+    assert "super-secret" not in sanitized["value"]
+    assert sanitized["redaction_applied"] is True

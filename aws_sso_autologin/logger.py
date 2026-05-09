@@ -12,11 +12,27 @@ _created_loggers: Set[logging.Logger] = set()
 TRACE_LEVEL_NUM = 5
 logging.addLevelName(TRACE_LEVEL_NUM, "TRACE")
 
+_SECRET_KEYS = (
+    "access_token",
+    "refresh_token",
+    "id_token",
+    "session_token",
+    "aws_session_token",
+    "security_token",
+    "x_amz_security_token",
+    "client_secret",
+    "secret",
+    "password",
+    "authorization",
+    "aws_access_key_id",
+    "aws_secret_access_key",
+)
+
 _JSON_SECRET_PAIR = re.compile(
-    r'(?i)("(?:access[_-]?token|refresh[_-]?token|secret|password|authorization|aws_access_key_id|aws_secret_access_key)"\s*:\s*)"[^"]*"'
+    r'(?i)("(?:' + "|".join(_SECRET_KEYS) + r')"\s*:\s*)"[^"]*"'
 )
 _KV_SECRET_PAIR = re.compile(
-    r"(?i)\b(access[_-]?token|refresh[_-]?token|secret|password|authorization|aws_access_key_id|aws_secret_access_key)\b\s*[:=]\s*([^\s,;]+)"
+    r"(?i)\b(" + "|".join(_SECRET_KEYS) + r")\b\s*[:=]\s*([^\s,;]+)"
 )
 _AUTH_BEARER = re.compile(r"(?i)(authorization\s*:\s*bearer\s+)([^\s,;]+)")
 _AUTH_BASIC = re.compile(r"(?i)(authorization\s*:\s*basic\s+)([^\s,;]+)")

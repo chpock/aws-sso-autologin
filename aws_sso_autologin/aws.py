@@ -181,7 +181,7 @@ def _run_aws_command(
             logger.warning(
                 "aws command completed with non-zero exit",
                 extra={
-                    "event": "aws_command_completed",
+                    "event": "aws_command_failed",
                     "status": "failed",
                     "exit_code": returncode,
                     "stderr_preview": (stderr or "")[:200],

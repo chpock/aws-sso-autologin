@@ -159,3 +159,62 @@ Date: 2026-05-10
   - `.venv/bin/pytest tests/test_service.py tests/test_cli.py tests/test_checker.py tests/test_operator.py tests/test_aws.py -q`
 - Output:
   - `79 passed in 4.08s`
+
+## Branch-level code review - round 3
+
+### Findings
+- F1 (Critical): secret redaction coverage still too narrow.
+- F2 (Important): verification evidence missing pasted full-suite and runtime outputs.
+- F3 (Important): `aws_command_failed` explicit taxonomy requested for non-zero exits.
+- F4 (Important): checker lifecycle completion event symmetry incomplete.
+
+### Response F1
+- Claim (restated): sanitizer misses common credential shapes.
+- Verification: reviewed `logger.py` and confirmed previous keyset omitted `aws_session_token`, `id_token`, and `client_secret` variants.
+- Decision: accept.
+- Reasoning: remaining leak paths are merge blockers.
+- Implementation: expanded key denylist and regex coverage in `aws_sso_autologin/logger.py`; added regression test in `tests/test_logger.py`.
+
+### Response F2
+- Claim (restated): review evidence requires pasted outputs, including runtime startup logs.
+- Verification: prior section had command-only/full-suite summary gaps.
+- Decision: accept.
+- Reasoning: verification gate requires explicit output evidence.
+- Implementation: added fresh pasted outputs for targeted tests, full suite, and `make run` startup/runtime logs below.
+
+### Response F3
+- Claim (restated): non-zero AWS command exits should emit explicit failed event.
+- Verification: previous code emitted `aws_command_completed` with `status=failed`.
+- Decision: accept.
+- Reasoning: explicit failed taxonomy improves operational filtering.
+- Implementation: updated `aws_sso_autologin/aws.py` to emit `event=aws_command_failed`; added assertion test in `tests/test_aws.py`.
+
+### Response F4
+- Claim (restated): checker should emit completion event on both success and inactive non-exception paths.
+- Verification: previously only partial lifecycle closure existed.
+- Decision: accept.
+- Reasoning: complete lifecycle contract requires explicit completion on all normal returns.
+- Implementation: added `session_check_completed` logs in both active and inactive normal branches in `aws_sso_autologin/checker.py`; added tests in `tests/test_checker.py`.
+
+## GREEN evidence (round 3)
+- Targeted command:
+  - `.venv/bin/pytest tests/test_logger.py tests/test_aws.py tests/test_checker.py tests/test_service.py -q`
+- Output:
+  - `59 passed in 4.07s`
+
+- Full suite command:
+  - `make test`
+- Output:
+  - `229 passed in 4.69s`
+
+- Runtime command:
+  - `make run`
+- Output excerpt (startup/preflight and runtime evidence):
+  - `DEBUG [aws_sso_autologin.service] tray host env probe`
+  - `DEBUG [aws_sso_autologin.service] tray host detected`
+  - `DEBUG [aws_sso_autologin.service] tray host preflight compatible`
+  - `DEBUG [aws_sso_autologin.aws] aws command started`
+  - `DEBUG [aws_sso_autologin.aws] subprocess started`
+  - `DEBUG [aws_sso_autologin.aws] subprocess completed`
+  - `INFO [aws_sso_autologin.aws] profile discovery completed`
+  - `INFO [__main__] AutologinApp: Starting Qt event loop`

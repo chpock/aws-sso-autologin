@@ -66,11 +66,21 @@ class SessionChecker:
             if is_active:
                 # Try to get session expiration
                 remaining = self._get_remaining_time(profile)
-                return SessionInfo(
+                session_info = SessionInfo(
                     profile_name=profile.name,
                     is_active=True,
                     seconds_remaining=remaining,
                 )
+                logger.debug(
+                    "session check completed",
+                    extra={
+                        "event": "session_check_completed",
+                        "profile": profile.name,
+                        "status": "active",
+                        "seconds_remaining": remaining,
+                    },
+                )
+                return session_info
 
             error_text = (stderr or stdout or "").strip()
             failure_type = SessionFailureType.OTHER
@@ -81,13 +91,23 @@ class SessionChecker:
             elif "timed out" in error_text.lower():
                 failure_type = SessionFailureType.TIMEOUT
 
-            return SessionInfo(
+            session_info = SessionInfo(
                 profile_name=profile.name,
                 is_active=False,
                 seconds_remaining=0,
                 failure_type=failure_type,
                 error_message=error_text or "Session check failed",
             )
+            logger.debug(
+                "session check completed",
+                extra={
+                    "event": "session_check_completed",
+                    "profile": profile.name,
+                    "status": "inactive",
+                    "failure_type": failure_type.value,
+                },
+            )
+            return session_info
 
         except Exception as exc:
             message = str(exc)

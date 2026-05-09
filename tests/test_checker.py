@@ -67,3 +67,37 @@ def test_checker_marks_permission_denied_failure_type():
 
     assert info.is_active is False
     assert info.failure_type == SessionFailureType.PERMISSION_DENIED
+
+
+def test_checker_emits_completed_event_for_active_session():
+    from aws_sso_autologin import checker
+
+    session_checker = SessionChecker(cli_path="aws")
+    profile = ProfileConfig(name="team-active")
+
+    with patch("aws_sso_autologin.checker._run_subprocess_with_escalation") as mock_run:
+        mock_run.side_effect = [(0, "{}", ""), (0, "role", "")]
+        with patch.object(checker.logger, "debug") as mock_debug:
+            session_checker.get_session_info(profile)
+
+    completed_calls = [
+        call for call in mock_debug.call_args_list if call.kwargs.get("extra", {}).get("event") == "session_check_completed"
+    ]
+    assert completed_calls
+
+
+def test_checker_emits_completed_event_for_inactive_session():
+    from aws_sso_autologin import checker
+
+    session_checker = SessionChecker(cli_path="aws")
+    profile = ProfileConfig(name="team-inactive")
+
+    with patch("aws_sso_autologin.checker._run_subprocess_with_escalation") as mock_run:
+        mock_run.return_value = (255, "", "token has expired")
+        with patch.object(checker.logger, "debug") as mock_debug:
+            session_checker.get_session_info(profile)
+
+    completed_calls = [
+        call for call in mock_debug.call_args_list if call.kwargs.get("extra", {}).get("event") == "session_check_completed"
+    ]
+    assert completed_calls
