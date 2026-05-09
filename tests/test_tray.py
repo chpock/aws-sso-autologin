@@ -94,3 +94,53 @@ class TestProfileStatus:
         )
         assert status.is_logged_in is True
         assert status.queue_position == 1
+
+
+def test_status_tray_init(qapp):
+    from aws_sso_autologin.tray import StatusTray
+    tray = StatusTray()
+    assert tray is not None
+    assert tray.tray_icon is not None
+
+
+def test_status_tray_menu_structure(qapp):
+    from aws_sso_autologin.tray import StatusTray
+    tray = StatusTray()
+    menu = tray.tray_icon.contextMenu()
+    assert menu is not None
+    actions = menu.actions()
+    # Should have: Status Window, separator, Quit
+    assert len(actions) >= 3
+    assert "Status Window" in [a.text() for a in actions]
+    assert "Quit" in [a.text() for a in actions]
+    tray.close()
+
+
+def test_status_tray_tooltip_format(qapp):
+    from aws_sso_autologin.tray import StatusTray
+    tray = StatusTray()
+    tooltip = tray.tray_icon.toolTip()
+    assert "AWS SSO Autologin" in tooltip
+    assert "Logged In:" in tooltip
+    tray.close()
+
+
+def test_status_tray_profile_update(qapp):
+    from aws_sso_autologin.tray import StatusTray, ProfileStatus
+    tray = StatusTray()
+    status = ProfileStatus(profile_name="test-profile", is_logged_in=True)
+    tray.update_profile(status)
+    assert "test-profile" in tray._profiles
+    assert tray._logged_in_count == 1
+    tray.close()
+
+
+def test_status_tray_profile_remove(qapp):
+    from aws_sso_autologin.tray import StatusTray, ProfileStatus
+    tray = StatusTray()
+    status = ProfileStatus(profile_name="test-profile", is_logged_in=True)
+    tray.update_profile(status)
+    tray.remove_profile("test-profile")
+    assert "test-profile" not in tray._profiles
+    assert tray._logged_in_count == 0
+    tray.close()
