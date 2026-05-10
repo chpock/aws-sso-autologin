@@ -52,7 +52,8 @@ run-agent: venv
 	@AWS_SSO_AUTOLOGIN_WATCHDOG=1 AWS_SSO_AUTOLOGIN_TIMEOUT=60 "$(PYTHON)" -m aws_sso_autologin --check-only --log-level $(LOG_LEVEL)
 
 lint: venv
-	@printf "No linter configured yet.\n"
+	@"$(VENV)/bin/ruff" check .
+	@"$(VENV)/bin/ruff" format --check .
 
 clean:
 	@find . -type d -name "__pycache__" -prune -exec rm -rf {} +
