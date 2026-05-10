@@ -3,13 +3,14 @@
 import os
 import signal
 import sys
+from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
 import typer
 from click.exceptions import ClickException
 from PySide6.QtCore import QObject, QTimer, Signal
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from aws_sso_autologin import VERSION_SOURCE, __version__
 from aws_sso_autologin.aws import discover_profiles
@@ -180,6 +181,9 @@ class AutologinApp:
             os.getenv("AWS_SSO_AUTOLOGIN_TRAY_LOSS_BEHAVIOR", "pause").strip().lower()
         )
         self._details_dialog: Any | None = None
+        self._monitoring_enabled = True
+        self._profile_status: dict[str, ProfileStatus] = {}
+        self._last_diagnostics_params: tuple[str, str, bool] | None = None
 
         logger.debug("AutologinApp: Initialized")
 
@@ -375,15 +379,6 @@ class AutologinApp:
         session_info: SessionInfo,
     ) -> ProfileStatus:
         if session_info.is_active:
-            if session_info.seconds_remaining is None:
-                return ProfileStatus(
-                    profile_name=profile_name,
-                    state=ProfileState.WARNING,
-                    short_reason="Session remaining time unavailable",
-                    diagnostics_summary="Session status warning",
-                    diagnostics_details=self._build_diagnostics_details(session_info),
-                )
-
             return ProfileStatus(
                 profile_name=profile_name,
                 state=ProfileState.OK,
@@ -403,41 +398,46 @@ class AutologinApp:
                 diagnostics_details=self._build_diagnostics_details(session_info),
             )
 
-        if session_info.failure_type == SessionFailureType.TIMEOUT:
-            return ProfileStatus(
-                profile_name=profile_name,
-                state=ProfileState.ERROR,
-                short_reason="Command timed out",
-                diagnostics_summary="Command timed out",
-                diagnostics_details=self._build_diagnostics_details(session_info),
-            )
-
-        if session_info.failure_type == SessionFailureType.PERMISSION_DENIED:
-            return ProfileStatus(
-                profile_name=profile_name,
-                state=ProfileState.ERROR,
-                short_reason="Access denied",
-                diagnostics_summary="Access denied",
-                diagnostics_details=self._build_diagnostics_details(session_info),
-            )
-
-        if session_info.failure_type == SessionFailureType.OTHER:
-            return ProfileStatus(
-                profile_name=profile_name,
-                state=ProfileState.WARNING,
-                short_reason="Connectivity issue",
-                diagnostics_summary="Connectivity warning",
-                diagnostics_details=self._build_diagnostics_details(session_info),
-            )
-
-        reason = session_info.error_message or "Session check failed"
-        return ProfileStatus(
-            profile_name=profile_name,
-            state=ProfileState.ERROR,
-            short_reason=reason,
-            diagnostics_summary="Session check error",
+        base_status = ProfileStatus(profile_name=profile_name)
+        event = self._session_to_event(session_info)
+        base_status = base_status.apply_event(event)
+        return replace(
+            base_status,
+            short_reason=self._reason_for_session(session_info),
+            diagnostics_summary=self._summary_for_session(session_info),
             diagnostics_details=self._build_diagnostics_details(session_info),
         )
+
+    def _session_to_event(self, session_info: SessionInfo) -> str:
+        if session_info.failure_type == SessionFailureType.TIMEOUT:
+            return "session_check_failed_indeterminate"
+        if session_info.failure_type == SessionFailureType.OTHER:
+            return "session_check_failed_indeterminate"
+        if session_info.failure_type == SessionFailureType.PERMISSION_DENIED:
+            return "session_check_failed_determinate"
+        if session_info.failure_type == SessionFailureType.EXPIRED_OR_INVALID:
+            return "session_check_expired"
+        return "session_check_failed_determinate"
+
+    @staticmethod
+    def _reason_for_session(session_info: SessionInfo) -> str:
+        if session_info.failure_type == SessionFailureType.TIMEOUT:
+            return "Command timed out"
+        if session_info.failure_type == SessionFailureType.OTHER:
+            return "Connectivity issue"
+        if session_info.failure_type == SessionFailureType.PERMISSION_DENIED:
+            return "Access denied"
+        return session_info.error_message or "Session check failed"
+
+    @staticmethod
+    def _summary_for_session(session_info: SessionInfo) -> str:
+        if session_info.failure_type == SessionFailureType.TIMEOUT:
+            return "Connectivity warning"
+        if session_info.failure_type == SessionFailureType.OTHER:
+            return "Connectivity warning"
+        if session_info.failure_type == SessionFailureType.PERMISSION_DENIED:
+            return "Access denied"
+        return "Session check error"
 
     def _on_status_change(
         self,
@@ -458,7 +458,34 @@ class AutologinApp:
                 renewal_status=renewal_status,
                 session_info=session_info,
             )
+            current = self._profile_status.get(profile_name)
+            if (
+                current is not None
+                and current.state is ProfileState.ERROR
+                and not session_info.is_active
+            ):
+                status = current
+            self._profile_status[profile_name] = status
             self._tray.update_profile(status)
+            app_state = self._aggregate_app_state()
+            logger.info(
+                "app state aggregated event=app_state_aggregated "
+                "monitoring_enabled=%s profile_error_count=%s profile_sync_count=%s "
+                "app_state=%s icon_state=%s",
+                self._monitoring_enabled,
+                sum(
+                    1
+                    for profile_status in self._profile_status.values()
+                    if profile_status.state is ProfileState.ERROR
+                ),
+                sum(
+                    1
+                    for profile_status in self._profile_status.values()
+                    if profile_status.state is ProfileState.SYNCING
+                ),
+                app_state,
+                self._tray.current_icon_state,
+            )
             if self._awaiting_initial_status:
                 self._tray.set_syncing(False)
                 self._awaiting_initial_status = False
@@ -469,8 +496,19 @@ class AutologinApp:
                 session_info.failure_type.value,
             )
 
+    def _aggregate_app_state(self) -> str:
+        if not self._monitoring_enabled:
+            return "paused"
+        if any(
+            status.state is ProfileState.ERROR
+            for status in self._profile_status.values()
+        ):
+            return "error"
+        return "working"
+
     def _on_toggle_monitoring(self, enabled: bool) -> None:
         """Handle first-row enable/disable action from tray menu."""
+        self._monitoring_enabled = enabled
         if self._health_operator is None:
             return
 
@@ -496,13 +534,20 @@ class AutologinApp:
         if details:
             logger.log(5, "Diagnostics details: %s", details)
 
+        self._last_diagnostics_params = (summary, details, is_config_error)
+        self._try_show_diagnostics()
+
+    def _try_show_diagnostics(self) -> None:
+        if self._last_diagnostics_params is None:
+            return
+        summary, details, is_config_error = self._last_diagnostics_params
+
         logger.info(
             "Creating ErrorDetailsDialog for summary: %s (config_error=%s)",
             summary,
             is_config_error,
         )
         try:
-            # Show the error details dialog to the user
             self._details_dialog = ErrorDetailsDialog.from_text(
                 summary=summary,
                 details=details,
@@ -512,8 +557,31 @@ class AutologinApp:
             logger.info("ErrorDetailsDialog created, showing dialog...")
             self._details_dialog.exec()
             logger.info("ErrorDetailsDialog closed")
+            self._last_diagnostics_params = None
         except Exception as e:
             logger.error("Failed to show diagnostics dialog: %s", e, exc_info=True)
+            self._show_diagnostics_fallback()
+
+    def _show_diagnostics_fallback(self) -> None:
+        parent = self._app.activeWindow() if self._app else None
+        box = QMessageBox(parent)
+        box.setWindowTitle("Diagnostics Error")
+        box.setText("Could not open details. Try again.")
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Retry | QMessageBox.StandardButton.Close
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.Retry)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setAccessibleName("Diagnostics dialog open failure")
+        box.setAccessibleDescription(
+            "Diagnostics details could not be displayed. "
+            "Choose Retry to attempt again or Close to cancel."
+        )
+        result = box.exec()
+        if result == QMessageBox.StandardButton.Retry:
+            self._try_show_diagnostics()
+        else:
+            self._last_diagnostics_params = None
 
     def _load_profiles(self) -> bool:
         """Load SSO profiles from AWS config.

@@ -274,3 +274,24 @@ def test_concrete_tray_host_ping_invokes_dbus_status_notifier_probe():
     assert command[0] == "dbus-send"
     assert "org.freedesktop.DBus.ListNames" in command
     assert kwargs["timeout"] == 2
+
+
+def test_session_checker_classifies_connectivity_failure_as_other():
+    from aws_sso_autologin.checker import SessionChecker
+    from aws_sso_autologin.models import ProfileConfig, SessionFailureType
+
+    checker = SessionChecker()
+    profile = ProfileConfig(name="dev")
+
+    with patch(
+        "aws_sso_autologin.checker._run_aws_command",
+        return_value=(
+            255,
+            "",
+            "Could not connect to endpoint URL: https://sts.us-east-1.amazonaws.com",
+        ),
+    ):
+        info = checker.get_session_info(profile)
+
+    assert info.is_active is False
+    assert info.failure_type == SessionFailureType.OTHER

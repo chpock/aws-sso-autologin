@@ -2,7 +2,7 @@
 
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import Enum
 
@@ -60,6 +60,7 @@ class ProfileStatus:
     short_reason: str | None = None
     diagnostics_summary: str | None = None
     diagnostics_details: str | None = None
+    confirmation_pending: bool = False
 
     # Backward-compatible fields used by early scaffolding tests/code.
     is_logged_in: bool | None = None
@@ -81,6 +82,35 @@ class ProfileStatus:
             self.state = ProfileState.OK
         else:
             self.state = ProfileState.WARNING
+
+    def apply_event(self, event: str) -> "ProfileStatus":
+        if self.state is ProfileState.ERROR:
+            if event == "session_check_success_active":
+                return self._replace(state=ProfileState.OK, confirmation_pending=False)
+            return self
+
+        if event == "session_check_success_active":
+            return self._replace(state=ProfileState.OK, confirmation_pending=False)
+        if event == "session_check_expired":
+            return self._replace(state=ProfileState.SYNCING, confirmation_pending=False)
+        if event == "session_check_failed_determinate":
+            return self._replace(state=ProfileState.ERROR, confirmation_pending=False)
+        if event == "session_check_failed_indeterminate":
+            return self._replace(state=ProfileState.WARNING, confirmation_pending=False)
+        if event == "sync_started":
+            return self._replace(state=ProfileState.SYNCING, confirmation_pending=False)
+        if event == "sync_failed":
+            return self._replace(state=ProfileState.ERROR, confirmation_pending=False)
+        if event == "sync_succeeded":
+            if self.state in (ProfileState.SYNCING, ProfileState.WARNING):
+                return self._replace(confirmation_pending=True)
+            return self
+        if event == "confirmation_timeout" and self.confirmation_pending:
+            return self._replace(state=ProfileState.SYNCING, confirmation_pending=False)
+        return self
+
+    def _replace(self, **changes: object) -> "ProfileStatus":
+        return replace(self, **changes)
 
 
 class StatusWindowProxy:
@@ -874,8 +904,7 @@ class StatusTray:
         if state == ProfileState.SYNCING:
             return f"Profile: {name} - Syncing..."
         if state == ProfileState.WARNING:
-            reason = status.short_reason or "Connectivity issue"
-            return f"Profile: {name} - Warning: {reason}"
+            return f"Profile: {name} - Check uncertain"
         if state == ProfileState.ERROR:
             reason = status.short_reason or "Command failed"
             return f"Profile: {name} - Error: {reason}"
@@ -901,9 +930,18 @@ class StatusTray:
         tooltip = (
             "AWS SSO Autologin\n"
             f"Profiles OK: {self._ok_count}/{total}\n"
-            f"State: {self.current_icon_state}"
+            f"State: {self._state_text()}"
         )
         self.tray_icon.setToolTip(tooltip)
+
+    def _state_text(self) -> str:
+        if not self._monitoring_enabled:
+            return "paused"
+        if self.current_icon_state in ("enabled-syncing", "enabled-warning"):
+            return "working/syncing"
+        if self.current_icon_state == "enabled-error":
+            return "error"
+        return "working/ok"
 
     def _throttled_tooltip_update(self) -> None:
         if not self._tooltip_timer.isActive():

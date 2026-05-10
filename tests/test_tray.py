@@ -81,6 +81,12 @@ class TestStatusWindowProxy:
 
 
 class TestProfileStatus:
+    def test_apply_event_ok_sync_succeeded_is_noop(self):
+        status = ProfileStatus(profile_name="dev", state=ProfileState.OK)
+        updated = status.apply_event("sync_succeeded")
+        assert updated.state is ProfileState.OK
+        assert updated.confirmation_pending is False
+
     def test_dataclass_defaults(self):
         status = ProfileStatus(profile_name="test")
         assert status.profile_name == "test"
@@ -102,6 +108,16 @@ class TestProfileStatus:
         )
         assert status.state == ProfileState.ERROR
         assert status.queue_position == 1
+
+    def test_apply_event_timeout_from_syncing_returns_syncing_without_pending(self):
+        status = ProfileStatus(
+            profile_name="dev",
+            state=ProfileState.SYNCING,
+            confirmation_pending=True,
+        )
+        updated = status.apply_event("confirmation_timeout")
+        assert updated.state is ProfileState.SYNCING
+        assert updated.confirmation_pending is False
 
 
 def test_status_tray_init(qapp):
@@ -197,7 +213,7 @@ def test_status_tray_profile_row_copy_warning_and_error(qapp):
     labels = [
         a.text() for a in tray.tray_icon.contextMenu().actions() if not a.isSeparator()
     ]
-    assert "Profile: warn - Warning: Connectivity issue" in labels
+    assert "Profile: warn - Check uncertain" in labels
     assert "Profile: err - Error: Access denied" in labels
     tray.close()
 

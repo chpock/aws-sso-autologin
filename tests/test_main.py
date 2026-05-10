@@ -263,8 +263,29 @@ def test_on_status_change_timeout_sets_warning_state():
     app._on_status_change("test-profile", RenewalStatus.UNKNOWN, info)
 
     status = app._tray.update_profile.call_args.args[0]
-    assert status.state == ProfileState.ERROR
+    assert status.state == ProfileState.WARNING
     assert status.short_reason == "Command timed out"
+
+
+def test_on_status_change_active_without_remaining_time_stays_ok():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.models import RenewalStatus, SessionFailureType, SessionInfo
+    from aws_sso_autologin.tray import ProfileState
+
+    app = AutologinApp()
+    app._tray = Mock()
+
+    info = SessionInfo(
+        profile_name="test-profile",
+        is_active=True,
+        seconds_remaining=None,
+        failure_type=SessionFailureType.NONE,
+    )
+
+    app._on_status_change("test-profile", RenewalStatus.NOT_NEEDED, info)
+
+    status = app._tray.update_profile.call_args.args[0]
+    assert status.state == ProfileState.OK
 
 
 def test_on_status_change_permission_denied_sets_error_state():
@@ -335,6 +356,40 @@ def test_on_status_change_other_failure_uses_connectivity_copy():
     status = app._tray.update_profile.call_args.args[0]
     assert status.state == ProfileState.WARNING
     assert status.short_reason == "Connectivity issue"
+
+
+def test_paused_status_overrides_error_icon():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.tray import ProfileState, ProfileStatus
+
+    app = AutologinApp([])
+    app._monitoring_enabled = False
+    app._profile_status["dev"] = ProfileStatus("dev", state=ProfileState.ERROR)
+
+    assert app._aggregate_app_state() == "paused"
+
+
+def test_indeterminate_failure_does_not_clear_error_state():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.models import RenewalStatus, SessionFailureType, SessionInfo
+    from aws_sso_autologin.tray import ProfileState, ProfileStatus
+
+    app = AutologinApp([])
+    app._tray = Mock()
+    app._profile_status["dev"] = ProfileStatus("dev", state=ProfileState.ERROR)
+
+    info = SessionInfo(
+        profile_name="dev",
+        is_active=False,
+        seconds_remaining=0,
+        failure_type=SessionFailureType.OTHER,
+        error_message="Could not connect to endpoint URL",
+    )
+
+    app._on_status_change("dev", RenewalStatus.UNKNOWN, info)
+
+    status = app._tray.update_profile.call_args.args[0]
+    assert status.state == ProfileState.ERROR
 
 
 def test_autologin_app_load_profiles_empty():
@@ -651,3 +706,27 @@ def test_on_show_diagnostics_displays_error_dialog():
         mock_dialog_class.from_text.assert_called_once()
         assert app._details_dialog is mock_dialog
         mock_dialog.exec.assert_called_once()
+
+
+def test_on_show_diagnostics_sets_recoverable_global_error_on_failure():
+    from PySide6.QtWidgets import QMessageBox
+
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    app = AutologinApp([])
+    app._tray = Mock()
+
+    with patch("aws_sso_autologin.__main__.ErrorDetailsDialog") as mock_dialog_class:
+        mock_dialog_class.from_text.side_effect = RuntimeError("dialog failed")
+        with patch("aws_sso_autologin.__main__.QMessageBox") as mock_qmb:
+            mock_box = MagicMock()
+            mock_box.exec.return_value = QMessageBox.StandardButton.Close
+            mock_qmb.return_value = mock_box
+
+            app._on_show_diagnostics("Test error summary", "Test error details")
+
+    mock_qmb.assert_called_once()
+    called_box = mock_qmb.return_value
+    assert called_box.setText.call_args.args[0] == (
+        "Could not open details. Try again."
+    )

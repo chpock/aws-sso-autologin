@@ -270,7 +270,7 @@ def test_timeout_escalation_terminates_then_kills():
 
 
 def test_timeout_logs_stdout_stderr_on_terminate():
-    """Test that stdout/stderr preview is logged when subprocess times out and terminates."""
+    """Test stdout/stderr preview logging on timeout termination."""
     from aws_sso_autologin import aws
 
     process = MagicMock()
@@ -285,8 +285,11 @@ def test_timeout_logs_stdout_stderr_on_terminate():
                 aws._run_subprocess_with_escalation(["aws", "sso", "login"], timeout=1)
 
     # Find the error log call for subprocess termination
-    error_calls = [call for call in mock_error.call_args_list
-                   if call.kwargs.get("extra", {}).get("event") == "subprocess_failed"]
+    error_calls = [
+        call
+        for call in mock_error.call_args_list
+        if call.kwargs.get("extra", {}).get("event") == "subprocess_failed"
+    ]
     assert len(error_calls) == 1
 
     extra = error_calls[0].kwargs["extra"]
@@ -315,8 +318,11 @@ def test_timeout_force_kill_logs_stdout_stderr():
                 aws._run_subprocess_with_escalation(["aws", "sso", "login"], timeout=1)
 
     # Find the error log call for force kill
-    error_calls = [call for call in mock_error.call_args_list
-                   if call.kwargs.get("extra", {}).get("event") == "subprocess_failed"]
+    error_calls = [
+        call
+        for call in mock_error.call_args_list
+        if call.kwargs.get("extra", {}).get("event") == "subprocess_failed"
+    ]
     assert len(error_calls) == 1
 
     extra = error_calls[0].kwargs["extra"]
