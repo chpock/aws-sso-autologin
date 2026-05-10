@@ -224,6 +224,10 @@ logging:
 profiles:
   my-sso-profile:
     browser:
+      - /usr/bin/chromium
+      - --profile-directory=Profile 1
+  another-profile:
+    browser:
       - google-chrome
       - --profile-directory=Work
       - --new-window
