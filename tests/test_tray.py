@@ -189,9 +189,7 @@ def test_status_tray_profile_row_copy_ok(qapp):
     labels = [
         a.text() for a in tray.tray_icon.contextMenu().actions() if not a.isSeparator()
     ]
-    assert any(
-        label.startswith("Profile: alpha - OK, last refresh:") for label in labels
-    )
+    assert any(label.startswith("Profile: alpha - OK") for label in labels)
     tray.close()
 
 
@@ -213,8 +211,8 @@ def test_status_tray_profile_row_copy_warning_and_error(qapp):
     labels = [
         a.text() for a in tray.tray_icon.contextMenu().actions() if not a.isSeparator()
     ]
-    assert "Profile: warn - Check uncertain" in labels
-    assert "Profile: err - Error: Access denied" in labels
+    assert "Profile: warn - Warning" in labels
+    assert "Profile: err - Error" in labels
     tray.close()
 
 
@@ -298,7 +296,7 @@ def test_status_tray_profile_update_refreshes_existing_label(qapp):
     labels = [
         a.text() for a in tray.tray_icon.contextMenu().actions() if not a.isSeparator()
     ]
-    assert "Profile: alpha - Error: Access denied" in labels
+    assert "Profile: alpha - Error" in labels
 
     tray.close()
 

@@ -841,6 +841,7 @@ class StatusTray:
         for name in profile_names:
             status = self._profiles[name]
             action = QAction(self._format_profile_label(status), menu)
+            action.setIcon(self._icon_for_state(self._effective_state(status)))
             action.triggered.connect(
                 lambda checked=False, profile_name=name: self._on_profile_selected(
                     profile_name
@@ -902,28 +903,25 @@ class StatusTray:
         name = status.profile_name
 
         if state == ProfileState.SYNCING:
-            return f"Profile: {name} - Syncing..."
+            return f"Profile: {name} - Sync"
         if state == ProfileState.WARNING:
-            return f"Profile: {name} - Check uncertain"
+            return f"Profile: {name} - Warning"
         if state == ProfileState.ERROR:
-            reason = status.short_reason or "Command failed"
-            return f"Profile: {name} - Error: {reason}"
+            return f"Profile: {name} - Error"
         if state == ProfileState.PAUSED_OK:
-            return f"Profile: {name} - OK (paused)"
+            return f"Profile: {name} - OK"
 
-        if status.last_login_time is None:
-            return f"Profile: {name} - OK, last refresh: unknown"
+        return f"Profile: {name} - OK"
 
-        age = datetime.now() - status.last_login_time
-        seconds = max(int(age.total_seconds()), 0)
-        if seconds < 60:
-            duration = f"{seconds}s ago"
-        elif seconds < 3600:
-            duration = f"{seconds // 60}m ago"
-        else:
-            duration = f"{seconds // 3600}h ago"
-
-        return f"Profile: {name} - OK, last refresh: {duration}"
+    def _icon_for_state(self, state: ProfileState) -> QIcon:
+        style = QApplication.style()
+        if state == ProfileState.ERROR:
+            return style.standardIcon(QStyle.SP_MessageBoxCritical)
+        if state == ProfileState.WARNING:
+            return style.standardIcon(QStyle.SP_MessageBoxWarning)
+        if state == ProfileState.SYNCING:
+            return style.standardIcon(QStyle.SP_BrowserReload)
+        return style.standardIcon(QStyle.SP_DialogApplyButton)
 
     def _update_tooltip(self) -> None:
         total = len(self._profiles)
