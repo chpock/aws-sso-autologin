@@ -31,8 +31,7 @@ def _run_subprocess_with_escalation(
 ) -> tuple[int, str, str]:
     """Run command with terminate->grace->kill timeout escalation."""
     started_at = time.time()
-    logger.log(
-        5,
+    logger.debug(
         "subprocess started",
         extra={"event": "subprocess_started", "command": command, "timeout_s": timeout},
     )
@@ -81,8 +80,7 @@ def _run_subprocess_with_escalation(
                 ),
             },
         )
-        logger.log(
-            5,
+        logger.debug(
             "subprocess completed",
             extra={
                 "event": "subprocess_completed",
@@ -198,8 +196,7 @@ def _run_aws_command(
     full_command = ["aws"] + command
 
     try:
-        logger.log(
-            5,
+        logger.debug(
             "aws command started",
             extra={
                 "event": "aws_command_started",
@@ -247,8 +244,7 @@ def _run_aws_command(
                     },
                 )
         else:
-            logger.log(
-                5,
+            logger.debug(
                 "aws command completed",
                 extra={
                     "event": "aws_command_completed",
