@@ -176,6 +176,7 @@ def _run_aws_command(
     command: list[str],
     timeout: int = 30,
     capture_output: bool = True,
+    operation_context: str | None = None,
 ) -> tuple[int, str, str]:
     """Run an AWS CLI command with proper error handling.
 
@@ -183,6 +184,8 @@ def _run_aws_command(
         command: Command arguments (without 'aws')
         timeout: Command timeout in seconds
         capture_output: Whether to capture stdout/stderr
+        operation_context: Description of what this command is doing
+            (e.g., "check_sso_config", "validate_session", etc.)
 
     Returns:
         Tuple of (exit_code, stdout, stderr)
@@ -199,6 +202,7 @@ def _run_aws_command(
                 "event": "aws_command_started",
                 "command": full_command,
                 "timeout_s": timeout,
+                "operation_context": operation_context,
             },
         )
 
@@ -208,17 +212,37 @@ def _run_aws_command(
         )
 
         if returncode != 0:
-            logger.info(
-                "aws command finished with non-zero exit",
-                extra={
-                    "event": "aws_command_failed",
-                    "status": "failed",
-                    "command": full_command,
-                    "exit_code": returncode,
-                    "stdout_preview": (stdout or "")[:200],
-                    "stderr_preview": (stderr or "")[:200],
-                },
+            # For SSO config checks, non-zero exit means "not an SSO profile"
+            # which is expected and not an error condition
+            is_expected_failure = (
+                operation_context == "check_sso_config"
+                and "configure get sso_start_url" in " ".join(full_command)
             )
+
+            if is_expected_failure:
+                logger.debug(
+                    "profile is not an SSO profile (no sso_start_url configured)",
+                    extra={
+                        "event": "sso_config_check_negative",
+                        "status": "not_sso_profile",
+                        "command": full_command,
+                        "exit_code": returncode,
+                        "operation_context": operation_context,
+                    },
+                )
+            else:
+                logger.info(
+                    "aws command finished with non-zero exit",
+                    extra={
+                        "event": "aws_command_failed",
+                        "status": "failed",
+                        "command": full_command,
+                        "exit_code": returncode,
+                        "stdout_preview": (stdout or "")[:200],
+                        "stderr_preview": (stderr or "")[:200],
+                        "operation_context": operation_context,
+                    },
+                )
         else:
             logger.debug(
                 "aws command completed",
@@ -226,6 +250,7 @@ def _run_aws_command(
                     "event": "aws_command_completed",
                     "status": "succeeded",
                     "exit_code": returncode,
+                    "operation_context": operation_context,
                 },
             )
 
@@ -271,6 +296,7 @@ def check_session_valid(profile: str) -> tuple[bool, datetime | None, str | None
         exit_code, stdout, stderr = _run_aws_command(
             ["sts", "get-caller-identity", "--profile", profile],
             timeout=10,
+            operation_context="validate_session",
         )
 
         if exit_code == 0:
@@ -646,13 +672,27 @@ def _get_profile_info(profile_name: str) -> ProfileInfo | None:
     """
     try:
         # Check if profile has SSO configuration
+        # Non-zero exit means the profile is NOT an SSO profile
+        # (this is expected behavior for regular non-SSO profiles)
         exit_code, stdout, stderr = _run_aws_command(
             ["configure", "get", "sso_start_url", "--profile", profile_name],
             timeout=10,
+            operation_context="check_sso_config",
         )
 
         if exit_code != 0 or not stdout.strip():
-            # No SSO start URL, not an SSO profile
+            # No SSO start URL found - this profile is not configured for SSO
+            # This is expected behavior for non-SSO profiles, not an error
+            logger.debug(
+                "profile skipped - not an SSO profile",
+                extra={
+                    "event": "profile_discovery_skip",
+                    "profile": profile_name,
+                    "reason": "no_sso_start_url",
+                    "exit_code": exit_code,
+                    "has_output": bool(stdout.strip()),
+                },
+            )
             return None
 
         sso_start_url = stdout.strip()
@@ -661,8 +701,19 @@ def _get_profile_info(profile_name: str) -> ProfileInfo | None:
         exit_code, stdout, _ = _run_aws_command(
             ["configure", "get", "sso_region", "--profile", profile_name],
             timeout=10,
+            operation_context="get_sso_region",
         )
         sso_region = stdout.strip() if exit_code == 0 else None
+
+        logger.debug(
+            "profile identified as SSO profile",
+            extra={
+                "event": "profile_discovery_sso_found",
+                "profile": profile_name,
+                "sso_start_url": sso_start_url,
+                "sso_region": sso_region,
+            },
+        )
 
         return ProfileInfo(
             name=profile_name,
@@ -693,9 +744,11 @@ def is_sso_profile(profile_name: str) -> bool:
         True if the profile has SSO configuration
     """
     try:
+        # Non-zero exit means the profile does not have SSO configuration
         exit_code, stdout, _ = _run_aws_command(
             ["configure", "get", "sso_start_url", "--profile", profile_name],
             timeout=10,
+            operation_context="check_sso_config",
         )
 
         return exit_code == 0 and bool(stdout.strip())
