@@ -105,6 +105,8 @@ def _run_subprocess_with_escalation(
         process.terminate()
         try:
             stdout, stderr = process.communicate(timeout=3)
+            stdout_payload = sanitize_trace_payload(stdout)
+            stderr_payload = sanitize_trace_payload(stderr)
             logger.error(
                 "subprocess terminated after timeout",
                 extra={
@@ -112,6 +114,20 @@ def _run_subprocess_with_escalation(
                     "status": "failed",
                     "reason": "timeout_terminated",
                     "command": command,
+                    "stdout_preview": stdout_payload["value"][:200],
+                    "stderr_preview": stderr_payload["value"][:200],
+                    "stdout_payload_size_bytes": stdout_payload["payload_size_bytes"],
+                    "stderr_payload_size_bytes": stderr_payload["payload_size_bytes"],
+                    "stdout_payload_truncated": stdout_payload["payload_truncated"],
+                    "stderr_payload_truncated": stderr_payload["payload_truncated"],
+                    "stdout_redaction_applied": stdout_payload["redaction_applied"],
+                    "stderr_redaction_applied": stderr_payload["redaction_applied"],
+                    "stdout_detail_unavailable_reason": stdout_payload.get(
+                        "detail_unavailable_reason"
+                    ),
+                    "stderr_detail_unavailable_reason": stderr_payload.get(
+                        "detail_unavailable_reason"
+                    ),
                 },
             )
             raise AWSCliError(
@@ -119,7 +135,9 @@ def _run_subprocess_with_escalation(
             )
         except subprocess.TimeoutExpired:
             process.kill()
-            process.communicate()
+            stdout, stderr = process.communicate()
+            stdout_payload = sanitize_trace_payload(stdout)
+            stderr_payload = sanitize_trace_payload(stderr)
             logger.error(
                 "subprocess force killed after timeout",
                 extra={
@@ -127,6 +145,20 @@ def _run_subprocess_with_escalation(
                     "status": "failed",
                     "reason": "timeout_force_kill",
                     "command": command,
+                    "stdout_preview": stdout_payload["value"][:200],
+                    "stderr_preview": stderr_payload["value"][:200],
+                    "stdout_payload_size_bytes": stdout_payload["payload_size_bytes"],
+                    "stderr_payload_size_bytes": stderr_payload["payload_size_bytes"],
+                    "stdout_payload_truncated": stdout_payload["payload_truncated"],
+                    "stderr_payload_truncated": stderr_payload["payload_truncated"],
+                    "stdout_redaction_applied": stdout_payload["redaction_applied"],
+                    "stderr_redaction_applied": stderr_payload["redaction_applied"],
+                    "stdout_detail_unavailable_reason": stdout_payload.get(
+                        "detail_unavailable_reason"
+                    ),
+                    "stderr_detail_unavailable_reason": stderr_payload.get(
+                        "detail_unavailable_reason"
+                    ),
                 },
             )
             raise AWSCliError(

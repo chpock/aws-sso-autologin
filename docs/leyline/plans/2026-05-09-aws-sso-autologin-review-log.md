@@ -809,3 +809,34 @@ The `ErrorDetailsDialog.from_text()` method always defaulted to command-executio
 - All 223 tests pass
 - New tests verify: no "Unknown execution state" header, no incident evidence, no command/exit code fields for config errors
 - UX spec updated and approved (round 12)
+
+## Systematic-debugging record - subprocess timeout stdout/stderr logging
+
+### Record - Timeout subprocess output not logged
+- Root cause (one sentence, plain English): When `aws sso login` times out, the stdout/stderr captured from the terminating process is available but never logged, making it impossible to diagnose why the command failed.
+- Falsifying test: `pytest tests/test_aws.py::test_timeout_logs_stdout_stderr_on_terminate tests/test_aws.py::test_timeout_force_kill_logs_stdout_stderr -v` failed with `AssertionError: assert 'stdout_preview' in {'command': [...], 'event': 'subprocess_failed', 'reason': 'timeout_terminated', 'status': 'failed'}` - stdout_preview/stderr_preview keys missing from log extra fields.
+- Hypothesis: If we include captured stdout/stderr (with sanitization) in the error log messages during timeout handling, users will see what the AWS command produced before termination.
+- Fix: Modified `_run_subprocess_with_escalation` in `aws_sso_autologin/aws.py` to:
+  1. Capture stdout/stderr from `process.communicate()` in both terminate and force-kill branches
+  2. Apply `sanitize_trace_payload()` for security (redaction of secrets, truncation)
+  3. Include `stdout_preview`, `stderr_preview` (first 200 chars), and payload metadata fields in error log extra dict
+- Regression coverage: `pytest tests/test_aws.py -q` (24 passed), `make test` (241 passed).
+
+### Post-implementation verification output
+
+```
+$ pytest tests/test_aws.py::test_timeout_logs_stdout_stderr_on_terminate tests/test_aws.py::test_timeout_force_kill_logs_stdout_stderr -v
+============================= test session starts ==============================
+platform linux -- Python 3.14.4, pytest-9.0.3, pluggy-1.6.0 -- /w/projects/aws-sso-autologin/.venv/bin/python
+PySide6 6.11.0 -- Qt runtime 6.11.0 -- Qt compiled 6.11.0
+rootdir: /w/projects/aws-sso-autologin
+collecting ... collected 2 items
+
+tests/test_aws.py::test_timeout_logs_stdout_stderr_on_terminate PASSED   [ 50%]
+tests/test_aws.py::test_timeout_force_kill_logs_stdout_stderr PASSED     [100%]
+
+============================== 2 passed in 0.02s ===============================
+
+$ make test
+241 passed in 4.52s
+```

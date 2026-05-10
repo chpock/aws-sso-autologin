@@ -269,6 +269,65 @@ def test_timeout_escalation_terminates_then_kills():
     assert "force kill" in str(error.value)
 
 
+def test_timeout_logs_stdout_stderr_on_terminate():
+    """Test that stdout/stderr preview is logged when subprocess times out and terminates."""
+    from aws_sso_autologin import aws
+
+    process = MagicMock()
+    process.communicate.side_effect = [
+        subprocess.TimeoutExpired(cmd=["aws"], timeout=1),
+        ("stdout content", "stderr content"),
+    ]
+
+    with patch("subprocess.Popen", return_value=process):
+        with patch.object(aws.logger, "error") as mock_error:
+            with pytest.raises(AWSCliError):
+                aws._run_subprocess_with_escalation(["aws", "sso", "login"], timeout=1)
+
+    # Find the error log call for subprocess termination
+    error_calls = [call for call in mock_error.call_args_list
+                   if call.kwargs.get("extra", {}).get("event") == "subprocess_failed"]
+    assert len(error_calls) == 1
+
+    extra = error_calls[0].kwargs["extra"]
+    assert extra["reason"] == "timeout_terminated"
+    # stdout_preview and stderr_preview should be logged (first 200 chars)
+    assert "stdout_preview" in extra
+    assert "stderr_preview" in extra
+    assert extra["stdout_preview"] == "stdout content"
+    assert extra["stderr_preview"] == "stderr content"
+
+
+def test_timeout_force_kill_logs_stdout_stderr():
+    """Test that stdout/stderr preview is logged when subprocess requires force kill."""
+    from aws_sso_autologin import aws
+
+    process = MagicMock()
+    process.communicate.side_effect = [
+        subprocess.TimeoutExpired(cmd=["aws"], timeout=1),
+        subprocess.TimeoutExpired(cmd=["aws"], timeout=3),
+        ("stdout after kill", "stderr after kill"),
+    ]
+
+    with patch("subprocess.Popen", return_value=process):
+        with patch.object(aws.logger, "error") as mock_error:
+            with pytest.raises(AWSCliError):
+                aws._run_subprocess_with_escalation(["aws", "sso", "login"], timeout=1)
+
+    # Find the error log call for force kill
+    error_calls = [call for call in mock_error.call_args_list
+                   if call.kwargs.get("extra", {}).get("event") == "subprocess_failed"]
+    assert len(error_calls) == 1
+
+    extra = error_calls[0].kwargs["extra"]
+    assert extra["reason"] == "timeout_force_kill"
+    # stdout_preview and stderr_preview should be logged (first 200 chars)
+    assert "stdout_preview" in extra
+    assert "stderr_preview" in extra
+    assert extra["stdout_preview"] == "stdout after kill"
+    assert extra["stderr_preview"] == "stderr after kill"
+
+
 def test_run_aws_command_logs_failed_event_on_non_zero_exit():
     from aws_sso_autologin import aws
 
