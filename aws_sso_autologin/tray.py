@@ -2,7 +2,7 @@
 
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import Enum
 
@@ -60,6 +60,7 @@ class ProfileStatus:
     short_reason: str | None = None
     diagnostics_summary: str | None = None
     diagnostics_details: str | None = None
+    confirmation_pending: bool = False
 
     # Backward-compatible fields used by early scaffolding tests/code.
     is_logged_in: bool | None = None
@@ -81,6 +82,23 @@ class ProfileStatus:
             self.state = ProfileState.OK
         else:
             self.state = ProfileState.WARNING
+
+    def apply_event(self, event: str) -> "ProfileStatus":
+        if self.state is ProfileState.ERROR:
+            if event == "session_check_success_active":
+                return self._replace(state=ProfileState.OK, confirmation_pending=False)
+            return self
+
+        if event == "sync_succeeded":
+            if self.state in (ProfileState.SYNCING, ProfileState.WARNING):
+                return self._replace(confirmation_pending=True)
+            return self
+
+        _ = event
+        return self
+
+    def _replace(self, **changes: object) -> "ProfileStatus":
+        return replace(self, **changes)
 
 
 class StatusWindowProxy:

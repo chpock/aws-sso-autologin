@@ -81,6 +81,12 @@ class TestStatusWindowProxy:
 
 
 class TestProfileStatus:
+    def test_apply_event_ok_sync_succeeded_is_noop(self):
+        status = ProfileStatus(profile_name="dev", state=ProfileState.OK)
+        updated = status.apply_event("sync_succeeded")
+        assert updated.state is ProfileState.OK
+        assert updated.confirmation_pending is False
+
     def test_dataclass_defaults(self):
         status = ProfileStatus(profile_name="test")
         assert status.profile_name == "test"

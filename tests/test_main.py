@@ -337,6 +337,40 @@ def test_on_status_change_other_failure_uses_connectivity_copy():
     assert status.short_reason == "Connectivity issue"
 
 
+def test_paused_status_overrides_error_icon():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.tray import ProfileState, ProfileStatus
+
+    app = AutologinApp([])
+    app._monitoring_enabled = False
+    app._profile_status["dev"] = ProfileStatus("dev", state=ProfileState.ERROR)
+
+    assert app._aggregate_app_state() == "paused"
+
+
+def test_indeterminate_failure_does_not_clear_error_state():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.models import RenewalStatus, SessionFailureType, SessionInfo
+    from aws_sso_autologin.tray import ProfileState, ProfileStatus
+
+    app = AutologinApp([])
+    app._tray = Mock()
+    app._profile_status["dev"] = ProfileStatus("dev", state=ProfileState.ERROR)
+
+    info = SessionInfo(
+        profile_name="dev",
+        is_active=False,
+        seconds_remaining=0,
+        failure_type=SessionFailureType.OTHER,
+        error_message="Could not connect to endpoint URL",
+    )
+
+    app._on_status_change("dev", RenewalStatus.UNKNOWN, info)
+
+    status = app._tray.update_profile.call_args.args[0]
+    assert status.state == ProfileState.ERROR
+
+
 def test_autologin_app_load_profiles_empty():
     from aws_sso_autologin.__main__ import AutologinApp
 

@@ -180,6 +180,8 @@ class AutologinApp:
             os.getenv("AWS_SSO_AUTOLOGIN_TRAY_LOSS_BEHAVIOR", "pause").strip().lower()
         )
         self._details_dialog: Any | None = None
+        self._monitoring_enabled = True
+        self._profile_status: dict[str, ProfileStatus] = {}
 
         logger.debug("AutologinApp: Initialized")
 
@@ -458,6 +460,14 @@ class AutologinApp:
                 renewal_status=renewal_status,
                 session_info=session_info,
             )
+            current = self._profile_status.get(profile_name)
+            if (
+                current is not None
+                and current.state is ProfileState.ERROR
+                and session_info.failure_type == SessionFailureType.OTHER
+            ):
+                status = current
+            self._profile_status[profile_name] = status
             self._tray.update_profile(status)
             if self._awaiting_initial_status:
                 self._tray.set_syncing(False)
@@ -469,8 +479,19 @@ class AutologinApp:
                 session_info.failure_type.value,
             )
 
+    def _aggregate_app_state(self) -> str:
+        if not self._monitoring_enabled:
+            return "paused"
+        if any(
+            status.state is ProfileState.ERROR
+            for status in self._profile_status.values()
+        ):
+            return "error"
+        return "working"
+
     def _on_toggle_monitoring(self, enabled: bool) -> None:
         """Handle first-row enable/disable action from tray menu."""
+        self._monitoring_enabled = enabled
         if self._health_operator is None:
             return
 
