@@ -616,9 +616,8 @@ class StatusTray:
         self._throttled_tooltip_update()
 
     def set_syncing(self, syncing: bool) -> None:
-        """Set global syncing flag used by first-row/icon semantics."""
+        """Set global syncing flag affecting tray icon state."""
         self._is_syncing = syncing
-        self._rebuild_menu()
         self._update_icon_state()
         self._throttled_tooltip_update()
 
@@ -786,7 +785,25 @@ class StatusTray:
             return "Pause Monitoring"
         return "Resume Monitoring"
 
+    # On Wayland with StatusNotifier (D-Bus tray protocol), the context menu
+    # popup is rendered by the tray host (panel), not by Qt.  QMenu.isVisible()
+    # and aboutToShow/aboutToHide signals are unaware of the native popup state.
+    # Qt marks the widget hidden before our handler runs, but the host may
+    # still have the popup on screen.
+    #
+    # If we rebuild the menu while the host still displays the popup, the host
+    # sees new content and keeps the popup open with the updated items — the
+    # user observes the menu "not closing."  The fix has two parts:
+    #
+    # 1. Use QMenu.close() (not hide()) which is the proper API to request
+    #    native popup dismissal.
+    # 2. Defer the actual monitoring toggle to the next event-loop iteration
+    #    via QTimer.singleShot(0).  Inside _apply_toggle, icon/tooltip update
+    #    immediately, but the menu rebuild is delayed by 200 ms to give the
+    #    tray host time to fully dismiss the popup before we modify its content.
     def _on_first_row_triggered(self) -> None:
+        self._menu.close()
+
         if self._global_error_summary:
             self._emit_diagnostics(
                 self._global_error_summary,
@@ -795,8 +812,18 @@ class StatusTray:
             )
             return
 
-        self.set_monitoring_enabled(not self._monitoring_enabled)
-        self._menu.hide()
+        target = not self._monitoring_enabled
+        QTimer.singleShot(0, lambda: self._apply_toggle(target))
+
+    def _apply_toggle(self, target: bool) -> None:
+        if self.tray_icon is None:
+            return
+        self._monitoring_enabled = target
+        if self._on_toggle_monitoring is not None:
+            self._on_toggle_monitoring(target)
+        self._update_icon_state()
+        self._throttled_tooltip_update()
+        QTimer.singleShot(200, self._rebuild_menu)
 
     def _rebuild_menu(self) -> None:
         self._menu.clear()

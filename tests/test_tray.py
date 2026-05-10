@@ -1,7 +1,7 @@
 """Tests for tray module."""
 
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from PySide6.QtCore import Qt
@@ -134,6 +134,10 @@ def test_status_tray_first_row_toggle_contract(qapp):
     actions = menu.actions()
     assert actions[0].text() == "Pause Monitoring"
     assert "Quit" in [a.text() for a in actions if not a.isSeparator()]
+
+    with patch.object(menu, "close") as mock_close:
+        actions[0].trigger()
+        mock_close.assert_called_once()
     tray.close()
 
 
@@ -159,7 +163,12 @@ def test_status_tray_global_error_replaces_toggle(qapp):
 
     first_action = tray.tray_icon.contextMenu().actions()[0]
     assert first_action.text() == "Show startup/sync error"
-    first_action.trigger()
+
+    menu = tray.tray_icon.contextMenu()
+    with patch.object(menu, "close") as mock_close:
+        first_action.trigger()
+        mock_close.assert_called_once()
+
     on_diagnostics.assert_called_once()
     tray.close()
 

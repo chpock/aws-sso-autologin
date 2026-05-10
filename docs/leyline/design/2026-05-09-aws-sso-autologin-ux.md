@@ -16,6 +16,7 @@ UX spec approved - round 9 - 2026-05-09
 UX spec approved - round 10 - 2026-05-09
 UX spec approved - round 11 - 2026-05-09
 UX spec approved - round 12 - 2026-05-10
+UX spec approved - round 13 - 2026-05-10
 Design-interrogation pass complete - round 1 - 2026-05-09
 
 ## Design-interrogation notes
@@ -121,19 +122,17 @@ Failure path: if login fails, profile row shows Error/Warning and opens detailed
 2. App stops (or keeps stopped) all background activity: checks, watchers, and refresh loops.
 3. Icon switches to `disabled-paused` variant.
 4. Profile rows display OK paused messaging.
-5. First row shows `Resume Monitoring` while paused, unless a global error action must replace it.
+5. First row shows `Resume Monitoring` while paused, unless a global error is active.
 6. User selects `Resume Monitoring` to resume monitoring.
+7. Menu closes on any first-row click.
 
-Failure path: if resume cannot start due to global AWS CLI/discovery/config issue, first row becomes a global error action that opens details. If rollback artifact verification fails, app remains in safe mode/global error action state until a valid artifact set is restored.
-
-### Flow 4 - Global AWS CLI/discovery/config failure
-1. App cannot perform global discovery/check operation due to unavailable/broken AWS CLI, unsupported AWS CLI version, classifier-governance validation failure, rollback artifact verification failure, globally invalid app config (including unsupported `config_version`), or config trust-policy violation (owner/permission/symlink checks).
-2. First row becomes explicit error action instead of toggle; this error action stays visible while 30-second retries continue and does not oscillate with toggle semantics until the blocking gate is resolved.
-3. User selects error row to open full diagnostics dialog, including incident evidence details when available.
+### Flow 4 - Global error (AWS CLI/discovery/config failure)
+1. App encounters a global blocking condition: unavailable/broken AWS CLI, unsupported AWS CLI version, globally invalid app config, or config trust-policy violation (owner/permission/symlink checks).
+2. First row becomes an explicit error action instead of a toggle; this error action stays visible while 30-second retries continue.
+3. User selects the error row — the menu closes and a diagnostics dialog opens.
 4. App remains running and retries discovery/config recovery checks every 30 seconds.
-5. For config trust-policy violations, app keeps last known-valid config behavior active until trust checks pass; for rollback-verification failures, app remains safe-mode blocked until verified artifacts are restored.
 
-Recovery path: after successful retry and governance/verification checks pass, first row returns to enable/disable toggle behavior.
+Recovery path: after the blocking condition is resolved, first row returns to the monitoring toggle.
 
 ### Flow 5 - Profile row interaction
 1. User selects profile row.
@@ -167,10 +166,10 @@ Preflight tray-host failure is a startup halt path; in that path tray surfaces a
 |---------|-------|---------|-------|---------|-------------------|---------|
 | CLI command surface | Help/version/check-only/log-level/log-format not requested | N/A - command parsing is immediate | Invalid argument/value (including unsupported `--log-level` or `--log-format`) prints actionable parse error and non-zero exit | `--help`, `--version`/`-V`, successful `--check-only`, valid `--log-level`/`--log-format`, and deterministic config+CLI precedence produce expected behavior and `0` semantics | N/A - represented via command failure text | N/A - represented via preflight/command failure text |
 | System tray icon | N/A - icon appears after app init | `enabled-syncing` while startup discovery/check is running | `enabled-error` for global failure or profile-level blocking issue | `enabled-ok` when monitoring is active and healthy; `disabled-paused` when paused; `enabled-warning` for non-blocking warning states | N/A - permission outcomes shown as command errors | N/A - offline represented as command failures |
-| Global control row | N/A - row always exists | Toggle row disabled during transient startup/sync operations (label reflects monitoring state) | `Show startup/sync error` action replacing toggle when global AWS operations fail, including unsupported AWS CLI version, unsupported/invalid global config guidance, config trust-policy violations, classifier-governance validation failures, and rollback artifact verification failures | `Pause Monitoring` when monitoring enabled, `Resume Monitoring` when monitoring disabled (including intentional safe-mode pause) | N/A - permission issues surfaced via error action | N/A - offline surfaced via error action |
+| Global control row | N/A - row always exists | Toggle row disabled during transient startup/sync operations (label reflects monitoring state) | Error action replacing toggle when a global blocking condition is active (unavailable/broken AWS CLI, unsupported AWS CLI version, invalid config, config trust-policy violation). Clicking it closes the menu and opens a diagnostics dialog | `Pause Monitoring` when monitoring enabled, `Resume Monitoring` when monitoring disabled (including intentional safe-mode pause). Clicking it closes the menu and toggles monitoring | N/A - permission issues surfaced via error action | N/A - offline surfaced via error action |
 | Profile status row | N/A - row exists only for discovered SSO profile | `Profile: <name> - Syncing...` while check or login result is pending | `Profile: <name> - Error: <short reason>` and row is clickable; timeout uses explicit `Command timed out` reason | `Profile: <name> - OK, last refresh: <duration>` or `Profile: <name> - OK (paused)` | `Profile: <name> - Error: Access denied` with clickable details | `Profile: <name> - Warning: Connectivity issue` with clickable details; unknown-classifier failures do not imply auto-login |
 | Profile overflow submenu | N/A - not shown when tracked profiles <= 40 | N/A - container does not represent command state | N/A - error states remain on individual profile rows | Visible and selectable only when tracked profiles > 40; labels are deterministic range buckets | N/A - permission outcomes stay on profile rows | N/A - offline outcomes stay on profile rows |
-| Error details dialog | Not shown | Optional brief `Loading diagnostics...` only if data assembly is asynchronous | Shows structured details in order: Summary, Incident evidence, Command, Exit code, stderr, stdout, Timestamp; Summary class is explicit (`AWS CLI unavailable`, `AWS CLI v2 required`, `Configuration version unsupported`, `Configuration invalid`, `Configuration file trust policy failed`, `Classifier governance check failed`, `Rollback artifact verification failed`, `Browser wrapper execution failed`) and includes explicit stream truncation/omitted-byte notices when caps are hit. Summary may include concise governance status lines (for example: `Release gate blocked: classifier governance incomplete`). Incident evidence block includes retention bounds (latest 50 incidents, max 24h); if evidence is unavailable, show explicit `retention window exceeded` notice. **Configuration errors** (e.g., `No SSO profiles detected`) show simplified view with Summary and Context only, without command-related fields or incident evidence. | N/A - not opened for OK states | Shows permission-specific diagnostics details | Shows connectivity/offline diagnostics details |
+| Error details dialog | Not shown | Optional brief `Loading diagnostics...` only if data assembly is asynchronous | Shows structured details in order: Summary, Incident evidence, Command, Exit code, stderr, stdout, Timestamp; Summary class is explicit (`AWS CLI unavailable`, `AWS CLI v2 required`, `Configuration version unsupported`, `Configuration invalid`, `Configuration file trust policy failed`, `Browser wrapper execution failed`) and includes explicit stream truncation/omitted-byte notices when caps are hit. Incident evidence block includes retention bounds (latest 50 incidents, max 24h); if evidence is unavailable, show explicit `retention window exceeded` notice. **Configuration errors** (e.g., `No SSO profiles detected`) show simplified view with Summary and Context only, without command-related fields or incident evidence. | N/A - not opened for OK states | Shows permission-specific diagnostics details | Shows connectivity/offline diagnostics details |
 | Quit row | N/A - row always exists | N/A | N/A | Executes graceful shutdown | N/A | N/A |
 
 Signal-triggered shutdown follows the same success semantics as Quit row and adds explicit `system_signal_received` / `shutdown_action` logs for observability.
@@ -186,7 +185,6 @@ Signal-triggered shutdown follows the same success semantics as Quit row and add
 - Resume action reflects in tray icon and first-row label within 5 seconds after user click.
 - After explicit expired/invalid detection, profile row reflects pending login-recovery state promptly (no silent waiting until login start).
 - Global error action remains visible while 30-second retries continue, then auto-returns to toggle state after recovery.
-- During classifier-governance or rollback-verification failures, first-row global error action stays persistent and does not oscillate with enable/disable toggle states.
 - Refresh labels remain consistent with the 30-second monitoring cadence while monitoring is enabled.
 - At 50 profiles, top-level menu open latency target is p95 <= 150 ms.
 - At 100 profiles, top-level menu open latency target is p95 <= 300 ms.
@@ -209,8 +207,6 @@ Reference strings:
 - Startup version event: `event=app_started version=<X.Y.Z> source=<embedded|default>`
 - Global compatibility error: `AWS CLI v2 is required. Current version is unsupported.`
 - Global trust error: `Configuration file is not trusted. Fix ownership, permissions, or symlink path and retry.`
-- Governance gate error: `Release gate blocked: classifier governance incomplete. Complete governance checks and retry.`
-- Rollback verification error: `Rollback artifact verification failed. Restore a valid artifact set and retry.`
 - Wrapper execution error: `Browser wrapper failed to execute. Check browser configuration and permissions.`
 
 Guidelines:
@@ -219,7 +215,6 @@ Guidelines:
 - Use consistent terms: `auto-login`, `profile`, `diagnostics`, `paused`.
 - Safe-mode pause copy is explicit, for example: `Auto-login is paused by safe mode. Enable to resume monitoring.`
 - Truncation copy is explicit, for example: `stderr truncated; 18240 bytes omitted.`
-- Governance status copy is explicit and actionable; avoid internal shorthand without a direct next step.
 
 ## Accessibility targets
 - WCAG intent: align with AA principles where applicable to tray/menu/dialog desktop surfaces.

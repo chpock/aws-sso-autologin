@@ -15,6 +15,7 @@ Product spec approved - round 8 - 2026-05-09
 Product spec approved - round 9 - 2026-05-09
 Product spec approved - round 10 - 2026-05-09
 Product spec approved - round 11 - 2026-05-09
+Product spec approved - round 12 - 2026-05-10
 
 ## Problem
 Users with multiple AWS SSO profiles lose active sessions during normal work and must manually run `aws sso login` per profile. This tool should run as a tray-only Linux/Wayland desktop app, monitor SSO session validity, and perform controlled auto-login when an SSO session is explicitly expired or invalid.
@@ -54,7 +55,7 @@ Users with multiple AWS SSO profiles lose active sessions during normal work and
   - when tray-host is lost at runtime, pause monitoring after 30 seconds, emit structured log entry `tray_host_lost`, continue background checks only if explicitly configured via `tray_loss_behavior: continue` (default: `pause`).
 - On startup, auto-login monitoring is enabled by default unless explicit safe-mode override is set for rollback.
 - Right-click tray menu must include:
-  - first item: toggle monitoring (`Pause Monitoring` or `Resume Monitoring`),
+  - first item: status-dependent action — when a global error is active, an error action that opens a diagnostics dialog; otherwise a monitoring toggle (`Pause Monitoring` or `Resume Monitoring`). Clicking any first-item action closes the menu,
   - separator,
   - one entry per tracked SSO profile with `Profile: <name> - <status>`,
   - separator,
@@ -63,7 +64,7 @@ Users with multiple AWS SSO profiles lose active sessions during normal work and
   - first-row global control and `Quit` remain on the top-level menu,
   - when tracked SSO profiles exceed 40, profile rows are grouped into deterministic overflow submenus of at most 20 rows each,
   - each tracked SSO profile still maps to exactly one selectable row with unchanged row format.
-- When AWS CLI is globally unavailable or profile discovery fails in a global way, replace the first toggle item with an explicit error item; clicking it opens a detailed error dialog.
+- When AWS CLI is globally unavailable or profile discovery fails in a global way, replace the first toggle item with an explicit error item; clicking it closes the menu and opens a detailed error dialog.
 - When monitoring is disabled by user:
   - stop all background activity,
   - do not run session checks,
@@ -77,10 +78,9 @@ Users with multiple AWS SSO profiles lose active sessions during normal work and
 - Use XDG variables wherever possible with conventional fallback paths.
 - AWS CLI compatibility target is v2. Unsupported CLI version is treated as a global error with a clear first-row menu action.
 - All security-sensitive file operations must be safe against symlink and race-condition attacks.
-- First-row control conflict resolution is deterministic:
-  - precedence order: tray-host preflight failure (startup exit) > rollback artifact verification failure > classifier artifact parity mismatch > global AWS CLI/config failures > safe-mode paused state > user toggle state,
-  - while any blocking global error class is active, first row remains global error action and does not switch to enable/disable toggle,
-  - blocked transition copy is mandatory and actionable, for example: `Resume Monitoring blocked: rollback artifact verification failed.`
+- First-row behavior is determined by two states:
+  - global error present: the first row is an error action. Clicking it closes the menu and opens a diagnostics dialog,
+  - no global error: the first row is a monitoring toggle (`Pause Monitoring` when monitoring is enabled, `Resume Monitoring` when disabled). Clicking it closes the menu and toggles monitoring.
 
 ## Approaches considered
 ### Approach A - Single-process Qt app (recommended)
