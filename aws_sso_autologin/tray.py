@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QStyle,
     QSystemTrayIcon,
     QTableWidget,
     QTableWidgetItem,
@@ -775,6 +776,10 @@ class StatusTray:
         self._menu.clear()
 
         first_action = QAction(self._first_row_label(), self._menu)
+        if self._global_error_summary:
+            first_action.setIcon(
+                QApplication.style().standardIcon(QStyle.SP_MessageBoxCritical)
+            )
         first_action.triggered.connect(self._on_first_row_triggered)
         if self._is_syncing and not self._global_error_summary:
             first_action.setEnabled(False)
