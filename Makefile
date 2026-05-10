@@ -13,9 +13,10 @@ help:
 	@printf "  make prepare       Create venv and install dependencies\n"
 	@printf "  make prepare-dev   Create venv and install dev dependencies (includes pytest)\n"
 	@printf "  make test          Run test suite\n"
+	@printf "  make test-with-lint Run lint check, then test suite\n"
 	@printf "  make test-verbose  Run test suite with verbose output\n"
 	@printf "  make run           Run application module (LOG_LEVEL=debug by default)\n"
-	@printf "  make lint          Placeholder lint target\n"
+	@printf "  make lint          Run ruff linter and format checker\n"
 	@printf "  make clean         Remove Python/test caches\n"
 	@printf "\nEnvironment variables:\n"
 	@printf "  LOG_LEVEL          Log level: error, warning, info, debug, trace (default: debug)\n"
@@ -31,7 +32,10 @@ prepare: venv
 prepare-dev: prepare
 	@"$(PIP)" install -e ".[dev]"
 
-test: lint venv
+test: venv
+	@"$(PYTEST)"
+
+test-with-lint: lint venv
 	@"$(PYTEST)"
 
 test-verbose: venv
