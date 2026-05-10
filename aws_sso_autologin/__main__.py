@@ -4,36 +4,39 @@ import os
 import signal
 import sys
 from datetime import datetime
-from typing import Optional, List, Any, NoReturn
-
-from aws_sso_autologin.mode_policy import ExecutionMode, get_execution_mode
-from aws_sso_autologin.watchdog import AutomationWatchdog, WatchdogTimeout
+from typing import Any
 
 import typer
 from click.exceptions import ClickException
-
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
+from aws_sso_autologin import VERSION_SOURCE, __version__
+from aws_sso_autologin.aws import discover_profiles
 from aws_sso_autologin.constants import CHECK_INTERVAL_SECONDS
-from aws_sso_autologin.service import (
-    TrayHost,
-    check_tray_host_available,
-    create_tray_host,
-    detect_tray_host,
-)
-from aws_sso_autologin.tray import ErrorDetailsDialog, ProfileState, ProfileStatus, StatusTray
-from aws_sso_autologin.operator import HealthOperator, SessionOperator, LoginOperator
+from aws_sso_autologin.logger import configure_logging, get_logger
+from aws_sso_autologin.mode_policy import ExecutionMode, get_execution_mode
 from aws_sso_autologin.models import (
     ProfileConfig,
     RenewalStatus,
     SessionFailureType,
     SessionInfo,
 )
-from aws_sso_autologin.aws import discover_profiles
-from aws_sso_autologin.logger import configure_logging, get_logger
+from aws_sso_autologin.operator import HealthOperator, LoginOperator, SessionOperator
+from aws_sso_autologin.service import (
+    TrayHost,
+    check_tray_host_available,
+    create_tray_host,
+    detect_tray_host,
+)
 from aws_sso_autologin.settings import RuntimeSettingsResolver
-from aws_sso_autologin import __version__, VERSION_SOURCE
+from aws_sso_autologin.tray import (
+    ErrorDetailsDialog,
+    ProfileState,
+    ProfileStatus,
+    StatusTray,
+)
+from aws_sso_autologin.watchdog import AutomationWatchdog, WatchdogTimeout
 
 logger = get_logger(__name__)
 
@@ -72,7 +75,9 @@ def _build_cli_app(state: dict[str, Any]) -> typer.Typer:
         tray_loss_behavior: str = typer.Option(
             "", "--tray-loss-behavior", help="Tray-loss behavior"
         ),
-        check_only: bool = typer.Option(False, "--check-only", help="Run preflight only"),
+        check_only: bool = typer.Option(
+            False, "--check-only", help="Run preflight only"
+        ),
         profiles: str = typer.Option("", "--profiles", help="Comma-separated profiles"),
     ) -> None:
         if log_level and log_level not in VALID_LOG_LEVELS:
@@ -117,7 +122,7 @@ def _run_preflight_check() -> int:
 
 class AutologinApp:
     """Main application class that wires all components together.
-    
+
     This class:
     - Initializes QApplication
     - Detects tray host
@@ -127,41 +132,41 @@ class AutologinApp:
     - Loads profiles from AWS config
     - Runs Qt event loop
     """
-    
-    def __init__(self, args: Optional[List[str]] = None) -> None:
+
+    def __init__(self, args: list[str] | None = None) -> None:
         """Initialize the autologin application.
-        
+
         Args:
             args: Command line arguments (defaults to sys.argv)
         """
         self._args = args or sys.argv
-        self._app: Optional[QApplication] = None
-        self._tray: Optional[StatusTray] = None
-        self._health_operator: Optional[HealthOperator] = None
-        self._session_operator: Optional[SessionOperator] = None
-        self._login_operator: Optional[LoginOperator] = None
-        self._profiles: List[ProfileConfig] = []
-        self._tray_host: Optional[TrayHost] = None
-        self._tray_host_timer: Optional[QTimer] = None
-        self._signal_pump_timer: Optional[QTimer] = None
+        self._app: QApplication | None = None
+        self._tray: StatusTray | None = None
+        self._health_operator: HealthOperator | None = None
+        self._session_operator: SessionOperator | None = None
+        self._login_operator: LoginOperator | None = None
+        self._profiles: list[ProfileConfig] = []
+        self._tray_host: TrayHost | None = None
+        self._tray_host_timer: QTimer | None = None
+        self._signal_pump_timer: QTimer | None = None
         self._tray_host_loss_announced = False
-        self._global_error_source: Optional[str] = None
+        self._global_error_source: str | None = None
         self._awaiting_initial_status = False
         self._is_shutting_down = False
         self._signal_shutdown_requested = False
         self._signal_handlers_installed = False
         self._previous_signal_handlers: dict[int, Any] = {}
         self._force_exit = os._exit
-        self._tray_loss_behavior = os.getenv(
-            "AWS_SSO_AUTOLOGIN_TRAY_LOSS_BEHAVIOR", "pause"
-        ).strip().lower()
-        self._details_dialog: Optional[Any] = None
-        
+        self._tray_loss_behavior = (
+            os.getenv("AWS_SSO_AUTOLOGIN_TRAY_LOSS_BEHAVIOR", "pause").strip().lower()
+        )
+        self._details_dialog: Any | None = None
+
         logger.debug("AutologinApp: Initialized")
-    
+
     def _initialize_qt(self) -> bool:
         """Initialize QApplication.
-        
+
         Returns:
             True if initialization succeeded, False otherwise
         """
@@ -175,10 +180,10 @@ class AutologinApp:
         except Exception as e:
             logger.error(f"Failed to initialize QApplication: {e}")
             return False
-    
+
     def _detect_tray_host(self) -> bool:
         """Detect and validate tray host environment.
-        
+
         Returns:
             True if a compatible tray host is available, False otherwise
         """
@@ -201,10 +206,10 @@ class AutologinApp:
 
         logger.info(f"Detected tray host: {host_info.name}")
         return True
-    
+
     def _create_tray(self) -> bool:
         """Create the system tray icon and menu.
-        
+
         Returns:
             True if tray was created successfully, False otherwise
         """
@@ -219,10 +224,10 @@ class AutologinApp:
         except Exception as e:
             logger.error(f"Failed to create StatusTray: {e}")
             return False
-    
+
     def _create_operators(self) -> bool:
         """Create all operators and wire them together.
-        
+
         Returns:
             True if operators were created successfully, False otherwise
         """
@@ -230,19 +235,19 @@ class AutologinApp:
             # Create login operator first (bottom of the stack)
             self._login_operator = LoginOperator()
             logger.debug("AutologinApp: LoginOperator created")
-            
+
             # Create session operator that uses login operator
             self._session_operator = SessionOperator(
                 login_operator=self._login_operator
             )
             logger.debug("AutologinApp: SessionOperator created")
-            
+
             # Create health operator that uses session operator
             self._health_operator = HealthOperator(
                 session_operator=self._session_operator
             )
             logger.debug("AutologinApp: HealthOperator created")
-            
+
             return True
         except Exception as e:
             logger.error(f"Failed to create operators: {e}")
@@ -288,7 +293,9 @@ class AutologinApp:
         self._tray_host_loss_announced = True
 
         if self._tray_loss_behavior == "continue":
-            logger.warning("Tray host lost; continuing monitoring per tray-loss behavior")
+            logger.warning(
+                "Tray host lost; continuing monitoring per tray-loss behavior"
+            )
             return
 
         if self._tray is not None:
@@ -313,17 +320,17 @@ class AutologinApp:
             return
         self._tray.set_global_error(None, "")
         self._global_error_source = None
-    
+
     def _wire_signals(self) -> None:
         """Wire signals between components.
-        
+
         Connects health operator status changes to tray updates.
         """
         if self._health_operator and self._tray:
             # Connect health status changes to tray updates
             self._health_operator.set_status_callback(self._on_status_change)
             logger.debug("AutologinApp: Signals wired")
-    
+
     def _build_diagnostics_details(self, status: SessionInfo) -> str:
         message = status.error_message or "Session status unavailable"
         return "\n".join(
@@ -457,13 +464,19 @@ class AutologinApp:
         if self._tray is not None:
             self._tray.set_syncing(False)
 
-    def _on_show_diagnostics(self, summary: str, details: str, is_config_error: bool = False) -> None:
+    def _on_show_diagnostics(
+        self, summary: str, details: str, is_config_error: bool = False
+    ) -> None:
         """Handle diagnostics action from tray menu."""
         logger.error("Diagnostics requested: %s", summary)
         if details:
             logger.debug("Diagnostics details: %s", details)
 
-        logger.info("Creating ErrorDetailsDialog for summary: %s (config_error=%s)", summary, is_config_error)
+        logger.info(
+            "Creating ErrorDetailsDialog for summary: %s (config_error=%s)",
+            summary,
+            is_config_error,
+        )
         try:
             # Show the error details dialog to the user
             self._details_dialog = ErrorDetailsDialog.from_text(
@@ -477,20 +490,20 @@ class AutologinApp:
             logger.info("ErrorDetailsDialog closed")
         except Exception as e:
             logger.error("Failed to show diagnostics dialog: %s", e, exc_info=True)
-    
+
     def _load_profiles(self) -> bool:
         """Load SSO profiles from AWS config.
-        
+
         Returns:
             True if profiles were loaded, False otherwise
         """
         try:
             profile_infos = discover_profiles()
-            
+
             if not profile_infos:
                 logger.warning("No SSO profiles found in AWS config")
                 return False
-            
+
             # Convert ProfileInfo to ProfileConfig
             self._profiles = []
             for info in profile_infos:
@@ -500,13 +513,13 @@ class AutologinApp:
                     sso_region=info.sso_region,
                 )
                 self._profiles.append(config)
-            
+
             logger.info(f"Loaded {len(self._profiles)} SSO profiles")
-            
+
             # Register profiles with health operator
             if self._health_operator:
                 self._health_operator.register_profiles(self._profiles)
-            
+
             # Initialize tray with profiles
             if self._tray:
                 self._awaiting_initial_status = True
@@ -517,15 +530,15 @@ class AutologinApp:
                         state=ProfileState.SYNCING,
                     )
                     self._tray.update_profile(status)
-            
+
             return True
         except Exception as e:
             logger.error(f"Failed to load profiles: {e}")
             return False
-    
+
     def _start_monitoring(self) -> bool:
         """Start the health monitoring loop.
-        
+
         Returns:
             True if monitoring started, False otherwise
         """
@@ -548,10 +561,10 @@ class AutologinApp:
         timer.timeout.connect(lambda: None)
         timer.start()
         self._signal_pump_timer = timer
-    
+
     def run(self) -> int:
         """Run the application.
-        
+
         Returns:
             Exit code (0 for success, non-zero for errors)
         """
@@ -560,15 +573,15 @@ class AutologinApp:
             return 1
 
         self._install_signal_handlers()
-        
+
         # Detect tray host
         if not self._detect_tray_host():
             return 1
-        
+
         # Create tray
         if not self._create_tray():
             return 1
-        
+
         # Create operators
         if not self._create_operators():
             return 1
@@ -576,15 +589,18 @@ class AutologinApp:
         # Create tray-host runtime monitor
         if not self._create_tray_host_monitor():
             return 1
-        
+
         # Wire signals
         self._wire_signals()
-        
+
         # Load profiles
         if not self._load_profiles():
             self._set_tray_global_error(
                 summary=NO_PROFILES_SUMMARY,
-                details="No SSO profiles found in AWS config. Add a profile with sso_start_url to enable auto-login.",
+                details=(
+                    "No SSO profiles found in AWS config. Add a profile with"
+                    " sso_start_url to enable auto-login."
+                ),
                 source="startup-no-profiles",
                 is_config_error=True,
             )
@@ -607,7 +623,7 @@ class AutologinApp:
 
         if self._tray is not None and not self._awaiting_initial_status:
             self._tray.set_syncing(False)
-        
+
         # Run Qt event loop
         logger.info("AutologinApp: Starting Qt event loop")
         try:
@@ -694,7 +710,7 @@ class AutologinApp:
                 "reason": reason,
             },
         )
-        
+
         if self._health_operator:
             logger.info(
                 "Stopping health monitoring",
@@ -719,7 +735,10 @@ class AutologinApp:
         if self._details_dialog is not None:
             logger.info(
                 "Closing diagnostics dialog",
-                extra={"event": "shutdown_action", "action": "close_diagnostics_dialog"},
+                extra={
+                    "event": "shutdown_action",
+                    "action": "close_diagnostics_dialog",
+                },
             )
             self._details_dialog.close()
             self._details_dialog = None
@@ -742,11 +761,11 @@ class AutologinApp:
 def run_with_mode(mode: ExecutionMode, check_only: bool = False) -> int:
     """
     Execute application logic based on determined mode.
-    
+
     Args:
         mode: Execution mode determined by policy layer
         check_only: Whether --check-only flag was explicitly passed
-        
+
     Returns:
         Exit code (0=success, 1=check failure, 124=watchdog timeout)
     """
@@ -759,28 +778,32 @@ def run_with_mode(mode: ExecutionMode, check_only: bool = False) -> int:
 def run_check_only() -> int:
     """
     Run preflight checks without entering daemon loop.
-    
+
     This is the safe mode for automation and tests.
     """
     import logging as _logging
+
     _logging.basicConfig(level=_logging.INFO, format="%(message)s")
     logger = _logging.getLogger(__name__)
-    
+
     logger.info("event=check_only_start mode=check_only")
-    
+
     try:
         # Run preflight checks
         tray_available = check_tray_host_available()
-        
+
         if tray_available:
             logger.info("event=check_only_completed mode=check_only status=passed")
-            print("Startup preflight passed. Tray host and AWS prerequisites are available.")
+            print(
+                "Startup preflight passed. Tray host and AWS prerequisites"
+                " are available."
+            )
             return 0
         else:
             logger.error("event=check_only_completed mode=check_only status=failed")
             print("Startup preflight failed. See logs for details.", file=sys.stderr)
             return 1
-            
+
     except Exception as e:
         logger.error(f"event=check_only_error error={e}")
         return 1
@@ -789,18 +812,20 @@ def run_check_only() -> int:
 def run_normal() -> int:
     """
     Run in normal mode (daemon with event loop).
-    
+
     This is the standard operation mode for interactive use.
     """
     import logging as _logging
+
     _logging.basicConfig(level=_logging.INFO, format="%(message)s")
     logger = _logging.getLogger(__name__)
-    
+
     logger.info("event=normal_start mode=normal")
-    
+
     try:
         # Import and run the actual daemon application
         from aws_sso_autologin.tray import run_tray_application
+
         run_tray_application()
         return 0
     except Exception as e:
@@ -811,48 +836,49 @@ def run_normal() -> int:
 def main_entrypoint(check_only: bool = False) -> int:
     """
     Main entrypoint with policy enforcement and watchdog protection.
-    
+
     Args:
         check_only: Whether --check-only flag was passed
-        
+
     Returns:
         Exit code (0=success, 1=check failure, 124=watchdog timeout)
     """
     import logging as _logging
+
     # Setup basic logging
     _logging.basicConfig(
         level=_logging.INFO,
         format="%(message)s",
     )
     logger = _logging.getLogger(__name__)
-    
+
     try:
         # Determine mode (respects CLI flags and automation context)
         mode = get_execution_mode(cli_check_only=check_only)
-        
+
         # Run with watchdog protection in automation contexts
         watchdog = AutomationWatchdog()
-        
+
         with watchdog:
             exit_code = run_with_mode(mode, check_only=check_only)
-            
+
         return exit_code
-        
+
     except WatchdogTimeout as e:
         logger.error(str(e))
         return 124
-        
+
     except Exception as e:
         logger.error(f"event=main_error error={e}")
         return 1
 
 
-def main(args: Optional[List[str]] = None) -> int:
+def main(args: list[str] | None = None) -> int:
     """Main entry point for the application.
-    
+
     Args:
         args: Command line arguments (defaults to sys.argv)
-        
+
     Returns:
         Exit code
     """
@@ -910,7 +936,7 @@ def main(args: Optional[List[str]] = None) -> int:
             "source": VERSION_SOURCE,
         },
     )
-    
+
     try:
         return app.run()
     except KeyboardInterrupt:

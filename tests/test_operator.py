@@ -1,10 +1,7 @@
 """Tests for the operator module."""
 
-import threading
 import time
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from aws_sso_autologin.models import (
     ProfileConfig,
@@ -19,11 +16,9 @@ from aws_sso_autologin.operator import (
     RENEWAL_THRESHOLD_SECONDS,
     HealthOperator,
     LoginOperator,
-    LoginResult,
     LoginStatus,
     SessionOperator,
 )
-
 
 # ==================== HealthOperator Tests ====================
 
@@ -109,7 +104,9 @@ def test_health_operator_callback_exception_does_not_break_check_loop():
 
     operator = HealthOperator(checker=mock_checker)
     operator.register_profiles([ProfileConfig(name="profile1")])
-    operator.set_status_callback(MagicMock(side_effect=RuntimeError("ui callback failed")))
+    operator.set_status_callback(
+        MagicMock(side_effect=RuntimeError("ui callback failed"))
+    )
 
     operator._check_all_profiles()
 
@@ -118,7 +115,7 @@ def test_health_operator_start_stop():
     """Test starting and stopping the operator."""
     operator = HealthOperator()
 
-    with patch.object(operator, "_monitor_loop") as mock_loop:
+    with patch.object(operator, "_monitor_loop"):
         operator.start()
         assert operator._running
         operator.stop()
@@ -317,9 +314,7 @@ def test_login_operator_profile_lock_expires():
     """Test that profile lock expires after 5 minutes."""
     operator = LoginOperator()
     # Set lock in the past (more than 8 minutes ago)
-    operator._profile_locks["profile1"] = (
-        time.time() - LOGIN_LOCK_SECONDS - 1
-    )
+    operator._profile_locks["profile1"] = time.time() - LOGIN_LOCK_SECONDS - 1
 
     assert not operator._is_profile_locked("profile1")
 

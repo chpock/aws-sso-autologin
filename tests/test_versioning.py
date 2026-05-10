@@ -2,7 +2,10 @@
 
 import pytest
 
-from aws_sso_autologin.versioning import build_version_from_describe, normalize_release_tag
+from aws_sso_autologin.versioning import (
+    build_version_from_describe,
+    normalize_release_tag,
+)
 
 
 def test_normalize_release_tag_accepts_v_prefix():

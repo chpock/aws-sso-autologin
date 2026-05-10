@@ -1,22 +1,22 @@
 """Tests for service module."""
 
-import subprocess
+from unittest.mock import MagicMock, patch
 
 import pytest
-from unittest.mock import patch, MagicMock
 
+from aws_sso_autologin.errors import TrayHostError
 from aws_sso_autologin.service import (
-    detect_tray_host,
     TrayHost,
+    TrayHostInfo,
     TrayHostType,
     check_tray_host_available,
-    TrayHostInfo,
+    detect_tray_host,
 )
-from aws_sso_autologin.errors import TrayHostError
 
 
 def test_tray_host_detect_returns_host():
     from aws_sso_autologin.service import detect_tray_host
+
     host = detect_tray_host()
     assert host is not None
 
@@ -97,21 +97,27 @@ def test_check_tray_host_available_logs_diagnostics_for_unknown_env():
 
 def test_detect_tray_host_detects_desktop_session():
     """Test that detect_tray_host checks DESKTOP_SESSION."""
-    with patch.dict('os.environ', {'DESKTOP_SESSION': 'gnome', 'XDG_CURRENT_DESKTOP': ''}):
+    with patch.dict(
+        "os.environ", {"DESKTOP_SESSION": "gnome", "XDG_CURRENT_DESKTOP": ""}
+    ):
         result = detect_tray_host()
         assert result.host_type in [TrayHostType.GNOME, TrayHostType.UNKNOWN]
 
 
 def test_detect_tray_host_detects_xdg_current_desktop():
     """Test that detect_tray_host checks XDG_CURRENT_DESKTOP."""
-    with patch.dict('os.environ', {'DESKTOP_SESSION': '', 'XDG_CURRENT_DESKTOP': 'GNOME'}):
+    with patch.dict(
+        "os.environ", {"DESKTOP_SESSION": "", "XDG_CURRENT_DESKTOP": "GNOME"}
+    ):
         result = detect_tray_host()
         assert result.host_type in [TrayHostType.GNOME, TrayHostType.UNKNOWN]
 
 
 def test_detect_tray_host_unknown_when_no_env():
     """Test detect_tray_host returns UNKNOWN when no desktop env vars set."""
-    with patch.dict('os.environ', {'DESKTOP_SESSION': '', 'XDG_CURRENT_DESKTOP': ''}, clear=False):
+    with patch.dict(
+        "os.environ", {"DESKTOP_SESSION": "", "XDG_CURRENT_DESKTOP": ""}, clear=False
+    ):
         result = detect_tray_host()
         # Should return UNKNOWN when no env vars are set
         assert isinstance(result, TrayHostInfo)
@@ -119,7 +125,9 @@ def test_detect_tray_host_unknown_when_no_env():
 
 def test_detect_tray_host_case_insensitive():
     """Test detect_tray_host handles case insensitively."""
-    with patch.dict('os.environ', {'DESKTOP_SESSION': 'GNOME', 'XDG_CURRENT_DESKTOP': ''}):
+    with patch.dict(
+        "os.environ", {"DESKTOP_SESSION": "GNOME", "XDG_CURRENT_DESKTOP": ""}
+    ):
         result = detect_tray_host()
         # Should detect regardless of case
         assert isinstance(result, TrayHostInfo)
@@ -138,7 +146,9 @@ def test_tray_host_info_defaults():
 
 def test_detect_tray_host_detects_kde():
     """Test detect_tray_host detects KDE."""
-    with patch.dict('os.environ', {'DESKTOP_SESSION': 'plasma', 'XDG_CURRENT_DESKTOP': 'KDE'}):
+    with patch.dict(
+        "os.environ", {"DESKTOP_SESSION": "plasma", "XDG_CURRENT_DESKTOP": "KDE"}
+    ):
         result = detect_tray_host()
         assert isinstance(result, TrayHostInfo)
         assert result.host_type in [TrayHostType.KDE, TrayHostType.UNKNOWN]
@@ -146,21 +156,27 @@ def test_detect_tray_host_detects_kde():
 
 def test_detect_tray_host_detects_xfce():
     """Test detect_tray_host detects XFCE."""
-    with patch.dict('os.environ', {'DESKTOP_SESSION': 'xfce', 'XDG_CURRENT_DESKTOP': 'XFCE'}):
+    with patch.dict(
+        "os.environ", {"DESKTOP_SESSION": "xfce", "XDG_CURRENT_DESKTOP": "XFCE"}
+    ):
         result = detect_tray_host()
         assert isinstance(result, TrayHostInfo)
         assert result.host_type in [TrayHostType.XFCE, TrayHostType.UNKNOWN]
 
 
 def test_detect_tray_host_detects_hyprland_as_generic():
-    with patch.dict('os.environ', {'DESKTOP_SESSION': '', 'XDG_CURRENT_DESKTOP': 'Hyprland'}):
+    with patch.dict(
+        "os.environ", {"DESKTOP_SESSION": "", "XDG_CURRENT_DESKTOP": "Hyprland"}
+    ):
         result = detect_tray_host()
         assert result.host_type == TrayHostType.GENERIC
         assert result.supports_status_notifier is True
 
 
 def test_check_tray_host_available_true_for_hyprland():
-    with patch.dict('os.environ', {'DESKTOP_SESSION': '', 'XDG_CURRENT_DESKTOP': 'Hyprland'}):
+    with patch.dict(
+        "os.environ", {"DESKTOP_SESSION": "", "XDG_CURRENT_DESKTOP": "Hyprland"}
+    ):
         assert check_tray_host_available() is True
 
 
@@ -174,14 +190,16 @@ def test_tray_host_error_class():
 def test_create_tray_host_returns_tray_host():
     """Test create_tray_host returns a TrayHost when available."""
     from aws_sso_autologin.service import create_tray_host
+
     result = create_tray_host()
     # May be None if no tray host available, or a TrayHost instance
-    assert result is None or hasattr(result, 'get_info')
+    assert result is None or hasattr(result, "get_info")
 
 
 def test_concrete_tray_host_ping_returns_bool():
     """Test ConcreteTrayHost.ping returns boolean."""
     from aws_sso_autologin.service import ConcreteTrayHost, TrayHostInfo, TrayHostType
+
     info = TrayHostInfo(
         host_type=TrayHostType.GNOME,
         name="Test",

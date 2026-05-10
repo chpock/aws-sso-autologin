@@ -31,51 +31,51 @@ class TestStatusWindowProxy:
         proxy = StatusWindowProxy()
         assert proxy is not None
         assert proxy._window is None
-    
+
     def test_ensure_window_creates_widget(self, qapp):
         proxy = StatusWindowProxy()
         window = proxy.ensure_window()
         assert window is not None
         assert proxy._window is not None
         assert proxy._table is not None
-    
+
     def test_show_makes_window_visible(self, qapp):
         proxy = StatusWindowProxy()
         proxy.show()
         assert proxy._window is not None
         assert proxy._window.isVisible()
         proxy.close()
-    
+
     def test_update_profile_adds_to_table(self, qapp):
         proxy = StatusWindowProxy()
         proxy.ensure_window()
-        
+
         status = ProfileStatus(
             profile_name="test-profile",
             state=ProfileState.OK,
             last_login_time=datetime(2026, 1, 1, 12, 0, 0),
         )
         proxy.update_profile(status)
-        
+
         assert "test-profile" in proxy._profiles
         assert proxy._table.rowCount() == 1
-    
+
     def test_remove_profile_deletes_from_table(self, qapp):
         proxy = StatusWindowProxy()
         proxy.ensure_window()
-        
+
         status = ProfileStatus(profile_name="test-profile", state=ProfileState.OK)
         proxy.update_profile(status)
         proxy.remove_profile("test-profile")
-        
+
         assert "test-profile" not in proxy._profiles
         assert proxy._table.rowCount() == 0
-    
+
     def test_close_cleans_up(self, qapp):
         proxy = StatusWindowProxy()
         proxy.show()
         proxy.close()
-        
+
         assert proxy._window is None
         assert proxy._table is None
 
@@ -89,7 +89,7 @@ class TestProfileStatus:
         assert status.next_refresh_time is None
         assert status.queue_position is None
         assert status.short_reason is None
-    
+
     def test_dataclass_with_values(self):
         now = datetime.now()
         status = ProfileStatus(
@@ -170,17 +170,33 @@ def test_status_tray_profile_row_copy_ok(qapp):
         last_login_time=datetime.now() - timedelta(minutes=1),
     )
     tray.update_profile(status)
-    labels = [a.text() for a in tray.tray_icon.contextMenu().actions() if not a.isSeparator()]
-    assert any(label.startswith("Profile: alpha - OK, last refresh:") for label in labels)
+    labels = [
+        a.text() for a in tray.tray_icon.contextMenu().actions() if not a.isSeparator()
+    ]
+    assert any(
+        label.startswith("Profile: alpha - OK, last refresh:") for label in labels
+    )
     tray.close()
 
 
 def test_status_tray_profile_row_copy_warning_and_error(qapp):
     tray = StatusTray()
-    tray.update_profile(ProfileStatus(profile_name="warn", state=ProfileState.WARNING, short_reason="Connectivity issue"))
-    tray.update_profile(ProfileStatus(profile_name="err", state=ProfileState.ERROR, short_reason="Access denied"))
+    tray.update_profile(
+        ProfileStatus(
+            profile_name="warn",
+            state=ProfileState.WARNING,
+            short_reason="Connectivity issue",
+        )
+    )
+    tray.update_profile(
+        ProfileStatus(
+            profile_name="err", state=ProfileState.ERROR, short_reason="Access denied"
+        )
+    )
 
-    labels = [a.text() for a in tray.tray_icon.contextMenu().actions() if not a.isSeparator()]
+    labels = [
+        a.text() for a in tray.tray_icon.contextMenu().actions() if not a.isSeparator()
+    ]
     assert "Profile: warn - Warning: Connectivity issue" in labels
     assert "Profile: err - Error: Access denied" in labels
     tray.close()
@@ -192,7 +208,9 @@ def test_status_tray_ok_profile_click_closes_menu_no_dialog(qapp):
     tray.update_profile(ProfileStatus(profile_name="ok", state=ProfileState.OK))
 
     actions = tray.tray_icon.contextMenu().actions()
-    ok_action = next(action for action in actions if action.text().startswith("Profile: ok"))
+    ok_action = next(
+        action for action in actions if action.text().startswith("Profile: ok")
+    )
     ok_action.trigger()
 
     on_diagnostics.assert_not_called()
@@ -207,13 +225,20 @@ def test_status_tray_error_profile_click_opens_dialog(qapp):
             profile_name="broken",
             state=ProfileState.ERROR,
             short_reason="Command timed out",
-            diagnostics_summary="Auto-login failed for profile \"broken\". Click to view full diagnostics.",
-            diagnostics_details="Summary\nCommand\nExit code\nstderr\nstdout\nTimestamp",
+            diagnostics_summary=(
+                'Auto-login failed for profile "broken". Click to view full'
+                " diagnostics."
+            ),
+            diagnostics_details=(
+                "Summary\nCommand\nExit code\nstderr\nstdout\nTimestamp"
+            ),
         )
     )
 
     actions = tray.tray_icon.contextMenu().actions()
-    broken_action = next(action for action in actions if action.text().startswith("Profile: broken"))
+    broken_action = next(
+        action for action in actions if action.text().startswith("Profile: broken")
+    )
     broken_action.trigger()
 
     on_diagnostics.assert_called_once()
@@ -231,7 +256,9 @@ def test_status_tray_overflow_uses_40_threshold_and_20_chunks(qapp):
         )
 
     menu = tray.tray_icon.contextMenu()
-    submenu_labels = [action.text() for action in menu.actions() if action.menu() is not None]
+    submenu_labels = [
+        action.text() for action in menu.actions() if action.menu() is not None
+    ]
     assert "Profiles 1-20" in submenu_labels
     assert "Profiles 21-40" in submenu_labels
     assert f"Profiles 41-{MAX_PROFILES_IN_ROOT_MENU + 1}" in submenu_labels
@@ -246,9 +273,15 @@ def test_status_tray_overflow_uses_40_threshold_and_20_chunks(qapp):
 def test_status_tray_profile_update_refreshes_existing_label(qapp):
     tray = StatusTray()
     tray.update_profile(ProfileStatus(profile_name="alpha", state=ProfileState.SYNCING))
-    tray.update_profile(ProfileStatus(profile_name="alpha", state=ProfileState.ERROR, short_reason="Access denied"))
+    tray.update_profile(
+        ProfileStatus(
+            profile_name="alpha", state=ProfileState.ERROR, short_reason="Access denied"
+        )
+    )
 
-    labels = [a.text() for a in tray.tray_icon.contextMenu().actions() if not a.isSeparator()]
+    labels = [
+        a.text() for a in tray.tray_icon.contextMenu().actions() if not a.isSeparator()
+    ]
     assert "Profile: alpha - Error: Access denied" in labels
 
     tray.close()
@@ -281,7 +314,8 @@ def test_error_details_dialog_has_required_section_order(qapp):
 
 
 def test_error_details_dialog_focus_defaults_to_textarea(qapp):
-    """Initial focus should be on details textarea per UX spec accessibility contract."""
+    """Initial focus should be on details textarea per UX spec accessibility
+    contract."""
     dialog = ErrorDetailsDialog.from_text(
         summary="AWS CLI unavailable",
         details="Command: sts_check\nExit code: 1",
@@ -300,7 +334,7 @@ def test_error_details_dialog_has_readonly_text_edit(qapp):
     )
 
     # Check that text edit exists and is readonly
-    assert hasattr(dialog, '_text_edit')
+    assert hasattr(dialog, "_text_edit")
     assert dialog._text_edit.isReadOnly()
     dialog.close()
 
@@ -374,7 +408,8 @@ def test_error_details_dialog_hides_command_fields_when_not_executed(qapp):
 
 
 def test_error_details_dialog_unknown_execution_state_copy_contract(qapp):
-    """Unknown execution state must show 'Unknown execution state' header and supporting copy."""
+    """Unknown execution state must show 'Unknown execution state' header and
+    supporting copy."""
     dialog = ErrorDetailsDialog.from_text(
         summary="Payload incomplete",
         details=(
@@ -410,7 +445,8 @@ def test_error_details_dialog_focus_on_textarea_for_unknown_state(qapp):
 
 
 def test_error_details_dialog_shows_unknown_fields_when_execution_unknown(qapp):
-    """Unknown execution state shows 'unknown' for Command/Exit code per UX spec contract."""
+    """Unknown execution state shows 'unknown' for Command/Exit code per UX spec
+    contract."""
     dialog = ErrorDetailsDialog.from_text(
         summary="Connectivity issue",
         details=(
@@ -522,7 +558,7 @@ def test_error_details_dialog_has_copy_button(qapp):
         details="Command: test",
     )
 
-    assert hasattr(dialog, '_copy_button')
+    assert hasattr(dialog, "_copy_button")
     assert dialog._copy_button is not None
     assert dialog._copy_button.text() == "Copy all details"
     dialog.close()
@@ -541,7 +577,7 @@ def test_error_details_dialog_copy_button_triggers_handler(qapp, monkeypatch):
         nonlocal handler_called
         handler_called = True
 
-    monkeypatch.setattr(dialog, '_on_copy_all_details', mock_handler)
+    monkeypatch.setattr(dialog, "_on_copy_all_details", mock_handler)
     dialog._copy_button.click()
 
     assert handler_called is True
@@ -555,7 +591,7 @@ def test_error_details_dialog_helper_label_in_layout(qapp):
         details="Command: test",
     )
 
-    assert hasattr(dialog, '_copy_helper_label')
+    assert hasattr(dialog, "_copy_helper_label")
     assert dialog._copy_helper_label is not None
     # Label should be visible in the layout
     assert dialog._copy_helper_label.parent() is dialog
@@ -567,19 +603,23 @@ def test_error_details_dialog_helper_label_visible_after_failure(qapp, monkeypat
     dialog = ErrorDetailsDialog.from_text("summary", "Command: sts_check")
 
     class RaisingClipboard:
-        def setText(self, _text: str) -> None:
+        def setText(self, _text: str) -> None:  # noqa: N802
             raise RuntimeError("clipboard unavailable")
 
     monkeypatch.setattr(dialog, "_clipboard", RaisingClipboard())
     dialog._on_copy_all_details()
 
-    assert dialog._copy_helper_label.text() == "Copy failed. Select details text and copy manually."
+    assert (
+        dialog._copy_helper_label.text()
+        == "Copy failed. Select details text and copy manually."
+    )
     assert dialog._copy_helper_state in {"fail", "escalated"}
     dialog.close()
 
 
 def test_error_details_dialog_helper_label_cleared_on_success(qapp):
-    """Helper label should be cleared immediately on copy success (no success display)."""
+    """Helper label should be cleared immediately on copy success (no success
+    display)."""
     dialog = ErrorDetailsDialog.from_text("summary", "Command: sts_check")
     dialog._set_copy_helper_state("fail")
 
@@ -605,6 +645,7 @@ def test_error_details_dialog_has_accessible_live_region(qapp):
 def test_error_details_dialog_copy_failure_logs_telemetry(qapp, monkeypatch, caplog):
     """Copy failure should log telemetry fields in structured log."""
     import logging
+
     from aws_sso_autologin.tray import logger as tray_logger
 
     dialog = ErrorDetailsDialog.from_text(
@@ -613,7 +654,7 @@ def test_error_details_dialog_copy_failure_logs_telemetry(qapp, monkeypatch, cap
     )
 
     class RaisingClipboard:
-        def setText(self, _text: str) -> None:
+        def setText(self, _text: str) -> None:  # noqa: N802
             raise RuntimeError("clipboard unavailable")
 
     monkeypatch.setattr(dialog, "_clipboard", RaisingClipboard())
@@ -631,6 +672,7 @@ def test_error_details_dialog_copy_failure_logs_telemetry(qapp, monkeypatch, cap
 def test_error_details_dialog_copy_success_logs_telemetry(qapp, caplog):
     """Copy success should log telemetry fields in structured log."""
     import logging
+
     from aws_sso_autologin.tray import logger as tray_logger
 
     dialog = ErrorDetailsDialog.from_text(
@@ -650,13 +692,16 @@ def test_error_details_dialog_copy_failure_shows_helper(qapp, monkeypatch):
     dialog = ErrorDetailsDialog.from_text("summary", "Command: sts_check")
 
     class RaisingClipboard:
-        def setText(self, _text: str) -> None:
+        def setText(self, _text: str) -> None:  # noqa: N802
             raise RuntimeError("clipboard unavailable")
 
     monkeypatch.setattr(dialog, "_clipboard", RaisingClipboard())
     dialog._on_copy_all_details()
 
-    assert dialog._copy_helper_label.text() == "Copy failed. Select details text and copy manually."
+    assert (
+        dialog._copy_helper_label.text()
+        == "Copy failed. Select details text and copy manually."
+    )
     assert dialog._copy_helper_state in {"fail", "escalated"}
     dialog.close()
 
@@ -679,7 +724,8 @@ def test_error_details_dialog_close_only_hides_dialog(qapp):
 
 
 def test_error_details_dialog_config_error_shows_clear_message(qapp):
-    """Configuration errors (like No SSO profiles) should show clear message without command-related fields."""
+    """Configuration errors (like No SSO profiles) should show clear message
+    without command-related fields."""
     dialog = ErrorDetailsDialog.from_text(
         summary="No SSO profiles detected",
         details="No SSO profiles detected. Monitoring profile sources for changes.",
@@ -707,7 +753,10 @@ def test_error_details_dialog_config_error_shows_helpful_context(qapp):
     """Configuration error dialog should show helpful context from details."""
     dialog = ErrorDetailsDialog.from_text(
         summary="No SSO profiles detected",
-        details="No profiles with SSO configuration found in ~/.aws/config. Add an SSO-enabled profile to enable auto-login.",
+        details=(
+            "No profiles with SSO configuration found in ~/.aws/config."
+            " Add an SSO-enabled profile to enable auto-login."
+        ),
         is_config_error=True,
     )
 

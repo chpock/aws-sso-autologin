@@ -4,10 +4,10 @@ import json
 import logging
 import re
 import sys
-from typing import Any, Optional, Set
+from typing import Any
 
 # Track all loggers created by get_logger
-_created_loggers: Set[logging.Logger] = set()
+_created_loggers: set[logging.Logger] = set()
 
 TRACE_LEVEL_NUM = 5
 logging.addLevelName(TRACE_LEVEL_NUM, "TRACE")
@@ -200,23 +200,23 @@ def configure_logging(level_name: str = "info", log_format: str = "text") -> Non
         logger.propagate = True
 
 
-def get_logger(name: str, level: Optional[int] = None) -> logging.Logger:
+def get_logger(name: str, level: int | None = None) -> logging.Logger:
     """Get a logger with standard configuration.
-    
+
     Args:
         name: Logger name
         level: Optional log level (defaults to INFO)
-        
+
     Returns:
         Configured logger instance
     """
     logger = logging.getLogger(name)
-    
+
     if level is None:
         level = logging.getLogger().level or logging.INFO
-    
+
     logger.setLevel(level)
-    
+
     logger.propagate = True
 
     # Only add handler if not already configured
@@ -225,28 +225,30 @@ def get_logger(name: str, level: Optional[int] = None) -> logging.Logger:
         handler.setLevel(level)
 
         root_handlers = logging.getLogger().handlers
-        if root_handlers and isinstance(root_handlers[0].formatter, StructuredFormatter):
+        if root_handlers and isinstance(
+            root_handlers[0].formatter, StructuredFormatter
+        ):
             formatter = StructuredFormatter()
         else:
             formatter = TextFormatter(use_color=False)
         handler.setFormatter(formatter)
-        
+
         logger.addHandler(handler)
-    
+
     # Track this logger for debug mode updates
     _created_loggers.add(logger)
-    
+
     return logger
 
 
 def set_debug_mode(enabled: bool = True) -> None:
     """Enable or disable debug logging for all autologin loggers.
-    
+
     Args:
         enabled: Whether to enable debug mode
     """
     level = logging.DEBUG if enabled else logging.INFO
-    
+
     # Update all loggers created by get_logger
     for logger in _created_loggers:
         logger.setLevel(level)

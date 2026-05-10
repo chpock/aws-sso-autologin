@@ -1,6 +1,6 @@
 """Tests for session checker classification behavior."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from aws_sso_autologin.checker import SessionChecker
 from aws_sso_autologin.errors import AWSCliError
@@ -81,7 +81,9 @@ def test_checker_emits_completed_event_for_active_session():
             session_checker.get_session_info(profile)
 
     completed_calls = [
-        call for call in mock_debug.call_args_list if call.kwargs.get("extra", {}).get("event") == "session_check_completed"
+        call
+        for call in mock_debug.call_args_list
+        if call.kwargs.get("extra", {}).get("event") == "session_check_completed"
     ]
     assert completed_calls
 
@@ -98,6 +100,8 @@ def test_checker_emits_completed_event_for_inactive_session():
             session_checker.get_session_info(profile)
 
     completed_calls = [
-        call for call in mock_debug.call_args_list if call.kwargs.get("extra", {}).get("event") == "session_check_completed"
+        call
+        for call in mock_debug.call_args_list
+        if call.kwargs.get("extra", {}).get("event") == "session_check_completed"
     ]
     assert completed_calls

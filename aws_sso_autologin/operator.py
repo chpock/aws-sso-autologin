@@ -5,25 +5,25 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 
+from aws_sso_autologin.checker import SessionChecker
+from aws_sso_autologin.cli import CLIExecutor
 from aws_sso_autologin.constants import (
     CHECK_INTERVAL_SECONDS,
     HEARTBEAT_TIMEOUT_SECONDS,
     LOGIN_LOCK_SECONDS,
     RENEWAL_THRESHOLD_SECONDS,
 )
-from aws_sso_autologin.checker import SessionChecker
-from aws_sso_autologin.cli import CLIExecutor
+from aws_sso_autologin.logger import get_logger, sanitize_trace_payload
 from aws_sso_autologin.models import (
     ProfileConfig,
     RenewalStatus,
     SessionFailureType,
     SessionInfo,
 )
-from aws_sso_autologin.logger import get_logger, sanitize_trace_payload
 
 logger = get_logger(__name__)
+
 
 class LoginStatus(Enum):
     """Status of a login operation."""
@@ -47,7 +47,7 @@ class LoginResult:
 class LoginOperator:
     """Manages serial login queue with 5-minute lock per profile."""
 
-    def __init__(self, cli_executor: Optional[CLIExecutor] = None) -> None:
+    def __init__(self, cli_executor: CLIExecutor | None = None) -> None:
         """Initialize the login operator.
 
         Args:
@@ -58,7 +58,7 @@ class LoginOperator:
         self._profile_locks: dict[str, float] = {}
         self._queue: list[str] = []
         self._processing = False
-        self._worker_thread: Optional[threading.Thread] = None
+        self._worker_thread: threading.Thread | None = None
 
     def _is_profile_locked(self, profile_name: str) -> bool:
         """Check if a profile is currently locked.
@@ -119,14 +119,22 @@ class LoginOperator:
             if self._is_profile_locked(profile_name):
                 logger.warning(
                     "login enqueue skipped for locked profile",
-                    extra={"event": "login_enqueue_skipped", "profile": profile_name, "reason": "profile_locked"},
+                    extra={
+                        "event": "login_enqueue_skipped",
+                        "profile": profile_name,
+                        "reason": "profile_locked",
+                    },
                 )
                 return LoginStatus.LOCKED
             if profile_name not in self._queue:
                 self._queue.append(profile_name)
                 logger.info(
                     "login enqueue accepted",
-                    extra={"event": "login_enqueued", "profile": profile_name, "queue_length": len(self._queue)},
+                    extra={
+                        "event": "login_enqueued",
+                        "profile": profile_name,
+                        "queue_length": len(self._queue),
+                    },
                 )
             if not self._processing:
                 self._start_worker()
@@ -190,8 +198,12 @@ class LoginOperator:
                     "stderr_payload_truncated": stderr_payload["payload_truncated"],
                     "stdout_redaction_applied": stdout_payload["redaction_applied"],
                     "stderr_redaction_applied": stderr_payload["redaction_applied"],
-                    "stdout_detail_unavailable_reason": stdout_payload.get("detail_unavailable_reason"),
-                    "stderr_detail_unavailable_reason": stderr_payload.get("detail_unavailable_reason"),
+                    "stdout_detail_unavailable_reason": stdout_payload.get(
+                        "detail_unavailable_reason"
+                    ),
+                    "stderr_detail_unavailable_reason": stderr_payload.get(
+                        "detail_unavailable_reason"
+                    ),
                 },
             )
 
@@ -238,7 +250,7 @@ class LoginOperator:
 
         return LoginStatus.FAILURE
 
-    def wait_for_completion(self, timeout: Optional[float] = None) -> bool:
+    def wait_for_completion(self, timeout: float | None = None) -> bool:
         """Wait for all queued logins to complete.
 
         Args:
@@ -263,8 +275,8 @@ class SessionOperator:
 
     def __init__(
         self,
-        checker: Optional[SessionChecker] = None,
-        login_operator: Optional[LoginOperator] = None,
+        checker: SessionChecker | None = None,
+        login_operator: LoginOperator | None = None,
     ) -> None:
         """Initialize the session operator.
 
@@ -314,7 +326,10 @@ class SessionOperator:
         if info.seconds_remaining is None:
             logger.warning(
                 "session remaining time unavailable",
-                extra={"event": "session_remaining_unavailable", "profile": profile.name},
+                extra={
+                    "event": "session_remaining_unavailable",
+                    "profile": profile.name,
+                },
             )
             return RenewalStatus.UNKNOWN
 
@@ -357,8 +372,8 @@ class HealthOperator:
 
     def __init__(
         self,
-        session_operator: Optional[SessionOperator] = None,
-        checker: Optional[SessionChecker] = None,
+        session_operator: SessionOperator | None = None,
+        checker: SessionChecker | None = None,
     ) -> None:
         """Initialize the health operator.
 
@@ -371,10 +386,10 @@ class HealthOperator:
         self._profiles: list[ProfileConfig] = []
         self._last_heartbeat: float = time.time()
         self._running = False
-        self._monitor_thread: Optional[threading.Thread] = None
-        self._on_status_change: Optional[
-            Callable[[str, RenewalStatus, SessionInfo], None]
-        ] = None
+        self._monitor_thread: threading.Thread | None = None
+        self._on_status_change: (
+            Callable[[str, RenewalStatus, SessionInfo], None] | None
+        ) = None
 
     def register_profiles(self, profiles: list[ProfileConfig]) -> None:
         """Register profiles to monitor.
@@ -436,7 +451,11 @@ class HealthOperator:
             except Exception as e:
                 logger.error(
                     "profile health check failed",
-                    extra={"event": "profile_health_check_failed", "profile": profile.name, "error": str(e)},
+                    extra={
+                        "event": "profile_health_check_failed",
+                        "profile": profile.name,
+                        "error": str(e),
+                    },
                 )
                 fallback_info = SessionInfo(
                     profile_name=profile.name,
@@ -501,7 +520,11 @@ class HealthOperator:
             except Exception as e:
                 logger.error(
                     "forced profile check failed",
-                    extra={"event": "profile_force_check_failed", "profile": profile.name, "error": str(e)},
+                    extra={
+                        "event": "profile_force_check_failed",
+                        "profile": profile.name,
+                        "error": str(e),
+                    },
                 )
                 results[profile.name] = RenewalStatus.UNKNOWN
         self._update_heartbeat()

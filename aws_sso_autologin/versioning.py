@@ -2,7 +2,6 @@
 
 import re
 
-
 _RELEASE_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 _DESCRIBE_RE = re.compile(r"^(v\d+\.\d+\.\d+)-(\d+)-g([0-9a-fA-F]+)$")
 

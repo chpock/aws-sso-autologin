@@ -1,20 +1,19 @@
 """System tray UI components."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Callable, Optional
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QDialogButtonBox,
-    QFormLayout,
     QFrame,
-    QLabel,
     QHeaderView,
+    QLabel,
     QMenu,
     QPlainTextEdit,
     QPushButton,
@@ -53,16 +52,16 @@ class ProfileStatus:
 
     profile_name: str
     state: ProfileState = ProfileState.SYNCING
-    last_login_time: Optional[datetime] = None
-    next_refresh_time: Optional[datetime] = None
-    queue_position: Optional[int] = None
-    short_reason: Optional[str] = None
-    diagnostics_summary: Optional[str] = None
-    diagnostics_details: Optional[str] = None
+    last_login_time: datetime | None = None
+    next_refresh_time: datetime | None = None
+    queue_position: int | None = None
+    short_reason: str | None = None
+    diagnostics_summary: str | None = None
+    diagnostics_details: str | None = None
 
     # Backward-compatible fields used by early scaffolding tests/code.
-    is_logged_in: Optional[bool] = None
-    error_message: Optional[str] = None
+    is_logged_in: bool | None = None
+    error_message: str | None = None
 
     def __post_init__(self) -> None:
         if self.error_message and not self.short_reason:
@@ -86,10 +85,10 @@ class StatusWindowProxy:
     """Lazy-initialized status window showing session details."""
 
     def __init__(self) -> None:
-        self._window: Optional[QWidget] = None
-        self._table: Optional[QTableWidget] = None
+        self._window: QWidget | None = None
+        self._table: QTableWidget | None = None
         self._profiles: dict[str, ProfileStatus] = {}
-        self._refresh_timer: Optional[QTimer] = None
+        self._refresh_timer: QTimer | None = None
 
     def ensure_window(self) -> QWidget:
         """Ensure the status window exists and return it."""
@@ -224,8 +223,8 @@ class ErrorDetailsDialog(QDialog):
     def __init__(
         self,
         sections: dict[str, str],
-        parent: Optional[QWidget] = None,
-        command_executed: Optional[bool] = None,
+        parent: QWidget | None = None,
+        command_executed: bool | None = None,
         is_config_error: bool = False,
     ) -> None:
         super().__init__(parent)
@@ -307,16 +306,21 @@ class ErrorDetailsDialog(QDialog):
         if self._is_config_error:
             # Configuration errors show simple header with summary as title
             status_title = QLabel(self.sections.get("Summary", "Configuration Issue"))
-            status_title.setStyleSheet("font-weight: bold; font-size: 14px; padding: 4px 0;")
+            status_title.setStyleSheet(
+                "font-weight: bold; font-size: 14px; padding: 4px 0;"
+            )
             layout.addWidget(status_title)
         elif self._command_executed is None:
             # Unknown execution state copy contract per UX spec lines 132-134
             status_title = QLabel("Unknown execution state")
-            status_title.setStyleSheet("font-weight: bold; font-size: 14px; padding: 4px 0;")
+            status_title.setStyleSheet(
+                "font-weight: bold; font-size: 14px; padding: 4px 0;"
+            )
             layout.addWidget(status_title)
 
             status_subtitle = QLabel(
-                "Diagnostics are available, but command execution state could not be determined."
+                "Diagnostics are available, but command execution state"
+                " could not be determined."
             )
             status_subtitle.setStyleSheet("font-size: 12px; padding-bottom: 8px;")
             status_subtitle.setWordWrap(True)
@@ -324,7 +328,9 @@ class ErrorDetailsDialog(QDialog):
         else:
             # Default status header for known execution states
             status_title = QLabel("Diagnostics")
-            status_title.setStyleSheet("font-weight: bold; font-size: 14px; padding: 4px 0;")
+            status_title.setStyleSheet(
+                "font-weight: bold; font-size: 14px; padding: 4px 0;"
+            )
             layout.addWidget(status_title)
 
         return frame
@@ -361,8 +367,14 @@ class ErrorDetailsDialog(QDialog):
         """Copy all details to clipboard with helper state machine."""
         payload = self._text_edit.toPlainText()
         # Determine incident type from summary for telemetry
-        incident_type = self.sections.get("Summary", "unknown").split()[0].lower() if self.sections.get("Summary") else "unknown"
-        command_executed = self._command_executed if self._command_executed is not None else False
+        incident_type = (
+            self.sections.get("Summary", "unknown").split()[0].lower()
+            if self.sections.get("Summary")
+            else "unknown"
+        )
+        command_executed = (
+            self._command_executed if self._command_executed is not None else False
+        )
 
         try:
             self._clipboard.setText(payload)
@@ -424,10 +436,11 @@ class ErrorDetailsDialog(QDialog):
         cls,
         summary: str,
         details: str,
-        parent: Optional[QWidget] = None,
+        parent: QWidget | None = None,
         is_config_error: bool = False,
     ) -> "ErrorDetailsDialog":
-        # Configuration errors show simple, clear messaging without command-related fields
+        # Configuration errors show simple, clear messaging without"
+        # command-related fields
         if is_config_error:
             sections: dict[str, str] = {"Summary": summary}
             # Include details as helpful context if provided and different from summary
@@ -437,7 +450,9 @@ class ErrorDetailsDialog(QDialog):
 
         raw_sections = {
             "Summary": summary,
-            "Incident evidence": "Incident evidence unavailable: retention window exceeded.",
+            "Incident evidence": (
+                "Incident evidence unavailable: retention window exceeded."
+            ),
             "Command": "",
             "Exit code": "",
             "stderr": "",
@@ -454,7 +469,7 @@ class ErrorDetailsDialog(QDialog):
             "timestamp": "Timestamp",
             "summary": "Summary",
         }
-        command_executed: Optional[bool] = None
+        command_executed: bool | None = None
 
         for line in details.splitlines():
             if ":" not in line:
@@ -478,7 +493,8 @@ class ErrorDetailsDialog(QDialog):
         if raw_sections["Incident evidence"]:
             sections["Incident evidence"] = raw_sections["Incident evidence"]
 
-        # Track raw outputs for details textarea preservation when execution state unknown
+        # Track raw outputs for details textarea preservation when execution state"
+        # unknown
         raw_stdout = raw_sections["stdout"]
         raw_stderr = raw_sections["stderr"]
 
@@ -498,11 +514,13 @@ class ErrorDetailsDialog(QDialog):
             else:
                 sections["stdout"] = ""
         elif command_executed is None:
-            # Unknown execution state: use unknown-state copy contract per UX spec
+            # Unknown execution state: use unknown-state copy contract per UX"
+            # spec
             # Smart fields avoid command-failure phrasing
             sections["Command"] = "unknown"
             sections["Exit code"] = "unknown"
-            # Preserve raw outputs in details textarea even when hidden from smart fields
+            # Preserve raw outputs in details textarea even when hidden from"
+            # smart fields
             if raw_stdout:
                 sections["stdout"] = raw_stdout
             if raw_stderr:
@@ -519,21 +537,21 @@ class StatusTray:
 
     def __init__(
         self,
-        parent: Optional[QWidget] = None,
-        on_toggle_monitoring: Optional[Callable[[bool], None]] = None,
-        on_quit: Optional[Callable[[], None]] = None,
-        on_show_diagnostics: Optional[Callable[[str, str], None]] = None,
+        parent: QWidget | None = None,
+        on_toggle_monitoring: Callable[[bool], None] | None = None,
+        on_quit: Callable[[], None] | None = None,
+        on_show_diagnostics: Callable[[str, str], None] | None = None,
     ) -> None:
         self._parent = parent
         self._profiles: dict[str, ProfileStatus] = {}
         self._monitoring_enabled = True
         self._is_syncing = False
-        self._global_error_summary: Optional[str] = None
+        self._global_error_summary: str | None = None
         self._global_error_details: str = ""
         self._global_error_is_config: bool = False
         self._ok_count = 0
-        self._status_window: Optional[StatusWindowProxy] = None
-        self._details_dialog: Optional[ErrorDetailsDialog] = None
+        self._status_window: StatusWindowProxy | None = None
+        self._details_dialog: ErrorDetailsDialog | None = None
         self.current_icon_state = "enabled-ok"
 
         self._on_toggle_monitoring = on_toggle_monitoring
@@ -573,7 +591,7 @@ class StatusTray:
         self._throttled_tooltip_update()
 
     def set_global_error(
-        self, summary: Optional[str], details: str = "", is_config_error: bool = False
+        self, summary: str | None, details: str = "", is_config_error: bool = False
     ) -> None:
         """Set or clear first-row global error action state."""
         self._global_error_summary = summary
@@ -610,7 +628,9 @@ class StatusTray:
     def _recount_ok_profiles(self) -> None:
         ok_states = {ProfileState.OK, ProfileState.PAUSED_OK}
         self._ok_count = sum(
-            1 for status in self._profiles.values() if self._effective_state(status) in ok_states
+            1
+            for status in self._profiles.values()
+            if self._effective_state(status) in ok_states
         )
 
     def _update_icon_state(self) -> None:
@@ -626,10 +646,7 @@ class StatusTray:
             "enabled-error": QColor("#c62828"),
             "disabled-paused": QColor("#616161"),
         }
-        return {
-            state: self._make_state_icon(color)
-            for state, color in palette.items()
-        }
+        return {state: self._make_state_icon(color) for state, color in palette.items()}
 
     def _make_state_icon(self, color: QColor) -> QIcon:
         size = 16
@@ -719,7 +736,11 @@ class StatusTray:
         for name in profile_names:
             status = self._profiles[name]
             action = QAction(self._format_profile_label(status), menu)
-            action.triggered.connect(lambda checked=False, profile_name=name: self._on_profile_selected(profile_name))
+            action.triggered.connect(
+                lambda checked=False, profile_name=name: self._on_profile_selected(
+                    profile_name
+                )
+            )
             menu.addAction(action)
 
     def _on_profile_selected(self, profile_name: str) -> None:
@@ -728,12 +749,14 @@ class StatusTray:
 
         if state in (ProfileState.WARNING, ProfileState.ERROR):
             summary = status.diagnostics_summary or (
-                f'Auto-login failed for profile "{profile_name}". Click to view full diagnostics.'
+                f'Auto-login failed for profile "{profile_name}".'
+                f" Click to view full diagnostics."
             )
             details = status.diagnostics_details or (
                 "Summary: Auto-login failed for profile "
-                f"\"{profile_name}\". Click to view full diagnostics.\n"
-                "Incident evidence: Incident evidence unavailable: retention window exceeded.\n"
+                f'"{profile_name}". Click to view full diagnostics.\n'
+                "Incident evidence: Incident evidence unavailable:"
+                " retention window exceeded.\n"
                 "Command: sts_check\n"
                 "Exit code: unknown\n"
                 "stderr: unavailable\n"

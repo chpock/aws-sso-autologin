@@ -4,9 +4,9 @@ import os
 import subprocess
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Optional
 
 from aws_sso_autologin.logger import get_logger, sanitize_trace_payload
 
@@ -15,6 +15,7 @@ logger = get_logger(__name__)
 
 class TrayHostType(Enum):
     """Enumeration of supported tray host types."""
+
     GNOME = "gnome"
     KDE = "kde"
     XFCE = "xfce"
@@ -31,7 +32,7 @@ class TrayHostType(Enum):
 @dataclass
 class TrayHostInfo:
     """Information about the detected tray host environment.
-    
+
     Attributes:
         host_type: The type of tray host detected
         name: Human-readable name of the tray host
@@ -39,34 +40,35 @@ class TrayHostInfo:
         supports_status_notifier: Whether StatusNotifier is supported
         supports_xembed: Whether XEmbed is supported
     """
+
     host_type: TrayHostType
     name: str
-    version: Optional[str] = None
+    version: str | None = None
     supports_status_notifier: bool = False
     supports_xembed: bool = False
 
 
 class TrayHost(ABC):
     """Abstract interface for tray host operations.
-    
+
     This abstract base class defines the interface for interacting with
     different system tray hosts. Concrete implementations handle the
     specifics of each desktop environment.
     """
-    
+
     @abstractmethod
     def ping(self) -> bool:
         """Check if the tray host is responsive.
-        
+
         Returns:
             True if the tray host responds to ping, False otherwise
         """
         pass
-    
+
     @abstractmethod
     def get_info(self) -> TrayHostInfo:
         """Get information about the tray host.
-        
+
         Returns:
             TrayHostInfo with details about the tray host
         """
@@ -76,78 +78,69 @@ class TrayHost(ABC):
 # Mapping of desktop environment identifiers to tray host types
 _DESKTOP_ENV_MAP = {
     # GNOME variants
-    'gnome': TrayHostType.GNOME,
-    'gnome-shell': TrayHostType.GNOME,
-    'gnome-classic': TrayHostType.GNOME,
-    'ubuntu': TrayHostType.GNOME,  # Ubuntu uses GNOME Shell
-    
+    "gnome": TrayHostType.GNOME,
+    "gnome-shell": TrayHostType.GNOME,
+    "gnome-classic": TrayHostType.GNOME,
+    "ubuntu": TrayHostType.GNOME,  # Ubuntu uses GNOME Shell
     # KDE variants
-    'kde': TrayHostType.KDE,
-    'plasma': TrayHostType.KDE,
-    'kde-plasma': TrayHostType.KDE,
-    
+    "kde": TrayHostType.KDE,
+    "plasma": TrayHostType.KDE,
+    "kde-plasma": TrayHostType.KDE,
     # XFCE
-    'xfce': TrayHostType.XFCE,
-    'xfce4': TrayHostType.XFCE,
-    'xfce-session': TrayHostType.XFCE,
-    
+    "xfce": TrayHostType.XFCE,
+    "xfce4": TrayHostType.XFCE,
+    "xfce-session": TrayHostType.XFCE,
     # MATE
-    'mate': TrayHostType.MATE,
-    'mate-session': TrayHostType.MATE,
-    
+    "mate": TrayHostType.MATE,
+    "mate-session": TrayHostType.MATE,
     # Cinnamon
-    'cinnamon': TrayHostType.CINNAMON,
-    'cinnamon-session': TrayHostType.CINNAMON,
-    
+    "cinnamon": TrayHostType.CINNAMON,
+    "cinnamon-session": TrayHostType.CINNAMON,
     # Unity
-    'unity': TrayHostType.UNITY,
-    'unity-session': TrayHostType.UNITY,
-    
+    "unity": TrayHostType.UNITY,
+    "unity-session": TrayHostType.UNITY,
     # Pantheon (Elementary OS)
-    'pantheon': TrayHostType.PANTHEON,
-    'elementary': TrayHostType.PANTHEON,
-    
+    "pantheon": TrayHostType.PANTHEON,
+    "elementary": TrayHostType.PANTHEON,
     # Budgie
-    'budgie': TrayHostType.BUDGIE,
-    'budgie-desktop': TrayHostType.BUDGIE,
-    
+    "budgie": TrayHostType.BUDGIE,
+    "budgie-desktop": TrayHostType.BUDGIE,
     # LXQt
-    'lxqt': TrayHostType.LXQT,
-    'lxqt-session': TrayHostType.LXQT,
-
+    "lxqt": TrayHostType.LXQT,
+    "lxqt-session": TrayHostType.LXQT,
     # Wayland compositors (StatusNotifier via panel hosts like Waybar)
-    'hyprland': TrayHostType.GENERIC,
+    "hyprland": TrayHostType.GENERIC,
 }
 
 
-def _detect_from_env_var(env_var: str) -> Optional[TrayHostType]:
+def _detect_from_env_var(env_var: str) -> TrayHostType | None:
     """Detect tray host type from an environment variable.
-    
+
     Args:
         env_var: Name of the environment variable to check
-        
+
     Returns:
         TrayHostType if detected, None otherwise
     """
-    value = os.environ.get(env_var, '').lower()
+    value = os.environ.get(env_var, "").lower()
     if not value:
         return None
-    
+
     # Handle colon-separated values (e.g., "ubuntu:GNOME")
-    for part in value.split(':'):
+    for part in value.split(":"):
         part = part.strip().lower()
         if part in _DESKTOP_ENV_MAP:
             return _DESKTOP_ENV_MAP[part]
-    
+
     return None
 
 
 def detect_tray_host() -> TrayHostInfo:
     """Detect the current tray host environment.
-    
+
     This function checks environment variables to determine which desktop
     environment is running and whether it supports system tray operations.
-    
+
     Returns:
         TrayHostInfo with details about the detected tray host.
         Returns UNKNOWN type if no recognized environment is detected.
@@ -166,18 +159,21 @@ def detect_tray_host() -> TrayHostInfo:
     )
 
     # Try DESKTOP_SESSION first
-    host_type = _detect_from_env_var('DESKTOP_SESSION')
-    
+    host_type = _detect_from_env_var("DESKTOP_SESSION")
+
     # Fall back to XDG_CURRENT_DESKTOP
     if host_type is None:
-        host_type = _detect_from_env_var('XDG_CURRENT_DESKTOP')
-    
+        host_type = _detect_from_env_var("XDG_CURRENT_DESKTOP")
+
     # Check for StatusNotifier support (modern Linux desktops)
     if host_type is None:
         # No recognized desktop environment
         logger.debug(
             "tray host detection returned unknown",
-            extra={"event": "tray_host_detected", "host_type": TrayHostType.UNKNOWN.value},
+            extra={
+                "event": "tray_host_detected",
+                "host_type": TrayHostType.UNKNOWN.value,
+            },
         )
         return TrayHostInfo(
             host_type=TrayHostType.UNKNOWN,
@@ -185,20 +181,28 @@ def detect_tray_host() -> TrayHostInfo:
             supports_status_notifier=False,
             supports_xembed=False,
         )
-    
+
     # Determine capabilities based on desktop type
     # Most modern Linux desktops support StatusNotifier
     supports_status_notifier = host_type in [
-        TrayHostType.GNOME, TrayHostType.KDE, TrayHostType.XFCE,
-        TrayHostType.MATE, TrayHostType.CINNAMON, TrayHostType.PANTHEON,
-        TrayHostType.BUDGIE, TrayHostType.LXQT, TrayHostType.GENERIC,
+        TrayHostType.GNOME,
+        TrayHostType.KDE,
+        TrayHostType.XFCE,
+        TrayHostType.MATE,
+        TrayHostType.CINNAMON,
+        TrayHostType.PANTHEON,
+        TrayHostType.BUDGIE,
+        TrayHostType.LXQT,
+        TrayHostType.GENERIC,
     ]
-    
+
     # XEmbed is legacy support - fewer desktops support it now
     supports_xembed = host_type in [
-        TrayHostType.XFCE, TrayHostType.MATE, TrayHostType.LXQT,
+        TrayHostType.XFCE,
+        TrayHostType.MATE,
+        TrayHostType.LXQT,
     ]
-    
+
     # Get human-readable name
     host_names = {
         TrayHostType.GNOME: "GNOME Shell",
@@ -213,14 +217,14 @@ def detect_tray_host() -> TrayHostInfo:
         TrayHostType.GENERIC: "Generic Desktop",
         TrayHostType.UNKNOWN: "Unknown",
     }
-    
+
     info = TrayHostInfo(
         host_type=host_type,
         name=host_names.get(host_type, "Unknown"),
         supports_status_notifier=supports_status_notifier,
         supports_xembed=supports_xembed,
     )
-    
+
     logger.debug(
         "tray host detected",
         extra={
@@ -236,15 +240,15 @@ def detect_tray_host() -> TrayHostInfo:
 
 def check_tray_host_available() -> bool:
     """Check if a compatible tray host is available.
-    
+
     This function performs a preflight check to determine if the current
     desktop environment supports the required system tray functionality.
-    
+
     Returns:
         True if a compatible tray host is detected, False otherwise.
     """
     info = detect_tray_host()
-    
+
     # A tray host is available if:
     # 1. We detected a known desktop environment
     # 2. It supports at least one tray protocol (StatusNotifier or XEmbed)
@@ -266,7 +270,7 @@ def check_tray_host_available() -> bool:
             },
         )
         return False
-    
+
     if not info.supports_status_notifier and not info.supports_xembed:
         logger.warning(
             "tray host unavailable: required tray protocols unsupported",
@@ -282,7 +286,7 @@ def check_tray_host_available() -> bool:
             },
         )
         return False
-    
+
     logger.debug(
         "tray host preflight compatible",
         extra={
@@ -297,23 +301,23 @@ def check_tray_host_available() -> bool:
 
 class ConcreteTrayHost(TrayHost):
     """Concrete implementation of TrayHost interface.
-    
+
     This implementation provides actual tray host operations for the
     detected desktop environment.
     """
-    
+
     def __init__(
         self,
-        info: Optional[TrayHostInfo] = None,
-        ping_runner: Optional[Callable[..., subprocess.CompletedProcess]] = None,
+        info: TrayHostInfo | None = None,
+        ping_runner: Callable[..., subprocess.CompletedProcess] | None = None,
     ):
         """Initialize with tray host info.
-        
+
         Args:
             info: TrayHostInfo instance. If None, detect_tray_host() is called.
         """
         self._info = info or detect_tray_host()
-        self._last_ping_time: Optional[float] = None
+        self._last_ping_time: float | None = None
         self._consecutive_failures = 0
         self._is_lost = False
         self._ping_runner = ping_runner or subprocess.run
@@ -327,7 +331,7 @@ class ConcreteTrayHost(TrayHost):
     def is_lost(self) -> bool:
         """Whether tray host is considered lost by failure threshold."""
         return self._is_lost
-    
+
     def ping(self) -> bool:
         """Check if the tray host is responsive.
 
@@ -405,8 +409,12 @@ class ConcreteTrayHost(TrayHost):
                     "stderr_payload_truncated": stderr_payload["payload_truncated"],
                     "stdout_redaction_applied": stdout_payload["redaction_applied"],
                     "stderr_redaction_applied": stderr_payload["redaction_applied"],
-                    "stdout_detail_unavailable_reason": stdout_payload.get("detail_unavailable_reason"),
-                    "stderr_detail_unavailable_reason": stderr_payload.get("detail_unavailable_reason"),
+                    "stdout_detail_unavailable_reason": stdout_payload.get(
+                        "detail_unavailable_reason"
+                    ),
+                    "stderr_detail_unavailable_reason": stderr_payload.get(
+                        "detail_unavailable_reason"
+                    ),
                     "exit_code": result.returncode,
                 },
             )
@@ -443,24 +451,24 @@ class ConcreteTrayHost(TrayHost):
                 },
             )
         self._is_lost = True
-    
+
     def get_info(self) -> TrayHostInfo:
         """Get information about the tray host.
-        
+
         Returns:
             TrayHostInfo with details about the tray host
         """
         return self._info
 
 
-def create_tray_host() -> Optional[TrayHost]:
+def create_tray_host() -> TrayHost | None:
     """Create a TrayHost instance for the current environment.
-    
+
     Returns:
         TrayHost instance if a compatible host is available, None otherwise.
     """
     if not check_tray_host_available():
         return None
-    
+
     info = detect_tray_host()
     return ConcreteTrayHost(info)

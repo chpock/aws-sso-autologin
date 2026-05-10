@@ -1,7 +1,6 @@
 """CLI executor for AWS SSO commands."""
 
 import subprocess
-from typing import Optional
 
 from aws_sso_autologin.aws import run_sso_login
 from aws_sso_autologin.constants import SSO_LOGIN_TIMEOUT_SECONDS
@@ -24,7 +23,7 @@ class CLIExecutor:
     def execute_login(
         self,
         profile_name: str,
-        browser: Optional[str | list[str]] = None,
+        browser: str | list[str] | None = None,
         timeout: int = SSO_LOGIN_TIMEOUT_SECONDS,
     ) -> tuple[str, str, int]:
         """Execute AWS SSO login for a profile.
@@ -39,7 +38,11 @@ class CLIExecutor:
         """
         logger.info(
             "execute login requested",
-            extra={"event": "login_execute_requested", "profile": profile_name, "timeout_s": timeout},
+            extra={
+                "event": "login_execute_requested",
+                "profile": profile_name,
+                "timeout_s": timeout,
+            },
         )
 
         try:
@@ -54,12 +57,16 @@ class CLIExecutor:
         except Exception as e:
             logger.error(
                 "execute login failed",
-                extra={"event": "login_execute_failed", "profile": profile_name, "error": str(e)},
+                extra={
+                    "event": "login_execute_failed",
+                    "profile": profile_name,
+                    "error": str(e),
+                },
             )
             return ("", str(e), -1)
 
     def execute_command(
-        self, args: list[str], timeout: Optional[int] = None
+        self, args: list[str], timeout: int | None = None
     ) -> tuple[str, str, int]:
         """Execute a generic AWS CLI command.
 
@@ -73,7 +80,11 @@ class CLIExecutor:
         command = [self._cli_path] + args
         logger.debug(
             "cli command started",
-            extra={"event": "cli_command_started", "command": command, "timeout_s": timeout or 30},
+            extra={
+                "event": "cli_command_started",
+                "command": command,
+                "timeout_s": timeout or 30,
+            },
         )
         try:
             result = subprocess.run(
@@ -98,25 +109,41 @@ class CLIExecutor:
                     "stderr_payload_truncated": stderr_payload["payload_truncated"],
                     "stdout_redaction_applied": stdout_payload["redaction_applied"],
                     "stderr_redaction_applied": stderr_payload["redaction_applied"],
-                    "stdout_detail_unavailable_reason": stdout_payload.get("detail_unavailable_reason"),
-                    "stderr_detail_unavailable_reason": stderr_payload.get("detail_unavailable_reason"),
+                    "stdout_detail_unavailable_reason": stdout_payload.get(
+                        "detail_unavailable_reason"
+                    ),
+                    "stderr_detail_unavailable_reason": stderr_payload.get(
+                        "detail_unavailable_reason"
+                    ),
                     "exit_code": result.returncode,
                 },
             )
             logger.debug(
                 "cli command completed",
-                extra={"event": "cli_command_completed", "status": "completed", "exit_code": result.returncode},
+                extra={
+                    "event": "cli_command_completed",
+                    "status": "completed",
+                    "exit_code": result.returncode,
+                },
             )
             return (result.stdout, result.stderr, result.returncode)
         except subprocess.TimeoutExpired:
             logger.error(
                 "cli command timeout",
-                extra={"event": "cli_command_failed", "status": "failed", "reason": "timeout"},
+                extra={
+                    "event": "cli_command_failed",
+                    "status": "failed",
+                    "reason": "timeout",
+                },
             )
             return ("", "Command timed out", -1)
         except Exception as e:
             logger.error(
                 "cli command failed",
-                extra={"event": "cli_command_failed", "status": "failed", "error": str(e)},
+                extra={
+                    "event": "cli_command_failed",
+                    "status": "failed",
+                    "error": str(e),
+                },
             )
             return ("", str(e), -1)

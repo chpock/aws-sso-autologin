@@ -2,18 +2,18 @@
 
 import signal
 from io import StringIO
-
-import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
 
 
 def test_main_imports():
     from aws_sso_autologin.__main__ import main
+
     assert callable(main)
 
 
 def test_autologin_app_initialization():
     from aws_sso_autologin.__main__ import AutologinApp
+
     app = AutologinApp()
     assert app._app is None
     assert app._tray is None
@@ -25,6 +25,7 @@ def test_autologin_app_initialization():
 
 def test_autologin_app_with_args():
     from aws_sso_autologin.__main__ import AutologinApp
+
     args = ["--test"]
     app = AutologinApp(args)
     assert app._args == args
@@ -104,23 +105,29 @@ def test_shutdown_is_idempotent_and_logs_duplicate_request():
 
 def test_autologin_app_detect_tray_host_success():
     from aws_sso_autologin.__main__ import AutologinApp
+
     app = AutologinApp()
-    
-    with patch("aws_sso_autologin.__main__.check_tray_host_available", return_value=True):
+
+    with patch(
+        "aws_sso_autologin.__main__.check_tray_host_available", return_value=True
+    ):
         with patch("aws_sso_autologin.__main__.detect_tray_host") as mock_detect:
             mock_host_info = Mock()
             mock_host_info.name = "Test Desktop"
             mock_detect.return_value = mock_host_info
             result = app._detect_tray_host()
-    
+
     assert result is True
 
 
 def test_autologin_app_detect_tray_host_failure():
     from aws_sso_autologin.__main__ import AutologinApp
+
     app = AutologinApp()
 
-    with patch("aws_sso_autologin.__main__.check_tray_host_available", return_value=False):
+    with patch(
+        "aws_sso_autologin.__main__.check_tray_host_available", return_value=False
+    ):
         result = app._detect_tray_host()
 
     assert result is False
@@ -131,7 +138,9 @@ def test_autologin_app_detect_tray_host_failure_logs_preflight_details():
 
     app = AutologinApp()
 
-    with patch("aws_sso_autologin.__main__.check_tray_host_available", return_value=False):
+    with patch(
+        "aws_sso_autologin.__main__.check_tray_host_available", return_value=False
+    ):
         with patch("aws_sso_autologin.__main__.detect_tray_host") as mock_detect:
             mock_host_info = Mock()
             mock_host_info.name = "Unknown Desktop Environment"
@@ -152,7 +161,9 @@ def test_autologin_app_detect_tray_host_failure_emits_stdout_guidance():
     from aws_sso_autologin.__main__ import AutologinApp
 
     app = AutologinApp()
-    with patch("aws_sso_autologin.__main__.check_tray_host_available", return_value=False):
+    with patch(
+        "aws_sso_autologin.__main__.check_tray_host_available", return_value=False
+    ):
         with patch("builtins.print") as mock_print:
             result = app._detect_tray_host()
 
@@ -163,13 +174,14 @@ def test_autologin_app_detect_tray_host_failure_emits_stdout_guidance():
 
 def test_autologin_app_create_operators():
     from aws_sso_autologin.__main__ import AutologinApp
+
     app = AutologinApp()
-    
-    with patch("aws_sso_autologin.__main__.LoginOperator") as mock_login:
-        with patch("aws_sso_autologin.__main__.SessionOperator") as mock_session:
-            with patch("aws_sso_autologin.__main__.HealthOperator") as mock_health:
+
+    with patch("aws_sso_autologin.__main__.LoginOperator"):
+        with patch("aws_sso_autologin.__main__.SessionOperator"):
+            with patch("aws_sso_autologin.__main__.HealthOperator"):
                 result = app._create_operators()
-    
+
     assert result is True
     assert app._login_operator is not None
     assert app._session_operator is not None
@@ -178,13 +190,14 @@ def test_autologin_app_create_operators():
 
 def test_autologin_app_wire_signals():
     from aws_sso_autologin.__main__ import AutologinApp
+
     app = AutologinApp()
-    
+
     app._health_operator = Mock()
     app._tray = Mock()
-    
+
     app._wire_signals()
-    
+
     app._health_operator.set_status_callback.assert_called_once()
 
 
@@ -193,10 +206,10 @@ def test_autologin_app_on_status_change():
     from aws_sso_autologin.models import RenewalStatus, SessionFailureType, SessionInfo
 
     app = AutologinApp()
-    
+
     app._tray = Mock()
     app._profiles = []
-    
+
     with patch("aws_sso_autologin.__main__.ProfileStatus") as mock_status:
         info = SessionInfo(
             profile_name="test-profile",
@@ -326,25 +339,26 @@ def test_on_status_change_other_failure_uses_connectivity_copy():
 
 def test_autologin_app_load_profiles_empty():
     from aws_sso_autologin.__main__ import AutologinApp
+
     app = AutologinApp()
-    
+
     with patch("aws_sso_autologin.__main__.discover_profiles", return_value=[]):
         result = app._load_profiles()
-    
+
     assert result is False
     assert app._profiles == []
 
 
 def test_main_function():
     from aws_sso_autologin.__main__ import main
-    
+
     with patch("aws_sso_autologin.__main__.AutologinApp") as mock_app_class:
         mock_app = Mock()
         mock_app.run.return_value = 0
         mock_app_class.return_value = mock_app
-        
+
         result = main([])
-        
+
         assert result == 0
         mock_app.run.assert_called_once()
 
@@ -355,7 +369,7 @@ def test_main_logs_app_version_on_startup():
     with patch("aws_sso_autologin.__main__.__version__", "2.3.4"):
         with patch("aws_sso_autologin.__main__.VERSION_SOURCE", "embedded"):
             with patch("aws_sso_autologin.__main__.AutologinApp") as mock_app_class:
-                with patch("aws_sso_autologin.__main__.logger.info") as mock_info:
+                with patch("aws_sso_autologin.__main__.logger.info"):
                     mock_app = Mock()
                     mock_app.run.return_value = 0
                     mock_app_class.return_value = mock_app
@@ -435,10 +449,16 @@ def test_run_continues_when_profiles_do_not_load():
         with patch.object(app, "_detect_tray_host", return_value=True):
             with patch.object(app, "_create_tray", return_value=True):
                 with patch.object(app, "_create_operators", return_value=True):
-                    with patch.object(app, "_create_tray_host_monitor", return_value=True):
+                    with patch.object(
+                        app, "_create_tray_host_monitor", return_value=True
+                    ):
                         with patch.object(app, "_wire_signals"):
-                            with patch.object(app, "_load_profiles", return_value=False):
-                                with patch.object(app, "_start_monitoring", return_value=True):
+                            with patch.object(
+                                app, "_load_profiles", return_value=False
+                            ):
+                                with patch.object(
+                                    app, "_start_monitoring", return_value=True
+                                ):
                                     app._app = mock_qapp
                                     app._tray = Mock()
                                     result = app.run()
@@ -457,10 +477,14 @@ def test_run_fails_when_monitoring_does_not_start():
         with patch.object(app, "_detect_tray_host", return_value=True):
             with patch.object(app, "_create_tray", return_value=True):
                 with patch.object(app, "_create_operators", return_value=True):
-                    with patch.object(app, "_create_tray_host_monitor", return_value=True):
+                    with patch.object(
+                        app, "_create_tray_host_monitor", return_value=True
+                    ):
                         with patch.object(app, "_wire_signals"):
                             with patch.object(app, "_load_profiles", return_value=True):
-                                with patch.object(app, "_start_monitoring", return_value=False):
+                                with patch.object(
+                                    app, "_start_monitoring", return_value=False
+                                ):
                                     app._app = mock_qapp
                                     app._tray = Mock()
                                     result = app.run()
@@ -480,11 +504,18 @@ def test_run_starts_signal_pump_timer_for_sigint_responsiveness():
         with patch.object(app, "_detect_tray_host", return_value=True):
             with patch.object(app, "_create_tray", return_value=True):
                 with patch.object(app, "_create_operators", return_value=True):
-                    with patch.object(app, "_create_tray_host_monitor", return_value=True):
+                    with patch.object(
+                        app, "_create_tray_host_monitor", return_value=True
+                    ):
                         with patch.object(app, "_wire_signals"):
                             with patch.object(app, "_load_profiles", return_value=True):
-                                with patch.object(app, "_start_monitoring", return_value=True):
-                                    with patch("aws_sso_autologin.__main__.QTimer", return_value=mock_timer):
+                                with patch.object(
+                                    app, "_start_monitoring", return_value=True
+                                ):
+                                    with patch(
+                                        "aws_sso_autologin.__main__.QTimer",
+                                        return_value=mock_timer,
+                                    ):
                                         app._app = mock_qapp
                                         app._tray = Mock()
                                         app.run()
@@ -493,7 +524,7 @@ def test_run_starts_signal_pump_timer_for_sigint_responsiveness():
 
 
 def test_tray_host_loss_pauses_monitoring_by_default():
-    from aws_sso_autologin.__main__ import AutologinApp, TRAY_HOST_LOST_SUMMARY
+    from aws_sso_autologin.__main__ import TRAY_HOST_LOST_SUMMARY, AutologinApp
 
     app = AutologinApp([])
     app._tray = Mock()
@@ -583,7 +614,9 @@ def test_load_profiles_sets_syncing_until_first_status_update():
     profile_info.sso_start_url = "https://start"
     profile_info.sso_region = "us-east-1"
 
-    with patch("aws_sso_autologin.__main__.discover_profiles", return_value=[profile_info]):
+    with patch(
+        "aws_sso_autologin.__main__.discover_profiles", return_value=[profile_info]
+    ):
         loaded = app._load_profiles()
 
     assert loaded is True
@@ -603,8 +636,9 @@ def test_load_profiles_sets_syncing_until_first_status_update():
 
 def test_on_show_diagnostics_displays_error_dialog():
     """Test that _on_show_diagnostics shows ErrorDetailsDialog to user."""
-    from aws_sso_autologin.__main__ import AutologinApp
     from unittest.mock import patch
+
+    from aws_sso_autologin.__main__ import AutologinApp
 
     app = AutologinApp([])
 

@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 
 class RenewalStatus(Enum):
@@ -29,11 +28,11 @@ class ProfileConfig:
     """Configuration for an AWS SSO profile."""
 
     name: str
-    region: Optional[str] = None
-    sso_start_url: Optional[str] = None
-    sso_region: Optional[str] = None
-    sso_account_id: Optional[str] = None
-    sso_role_name: Optional[str] = None
+    region: str | None = None
+    sso_start_url: str | None = None
+    sso_region: str | None = None
+    sso_account_id: str | None = None
+    sso_role_name: str | None = None
 
 
 @dataclass
@@ -42,10 +41,10 @@ class SessionInfo:
 
     profile_name: str
     is_active: bool
-    seconds_remaining: Optional[int] = None
-    expiration_time: Optional[str] = None
+    seconds_remaining: int | None = None
+    expiration_time: str | None = None
     failure_type: SessionFailureType = SessionFailureType.NONE
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
 
 @dataclass

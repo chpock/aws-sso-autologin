@@ -1,7 +1,6 @@
 """Session checker for AWS SSO."""
 
 import time
-from typing import Optional
 
 from aws_sso_autologin.aws import _run_subprocess_with_escalation
 from aws_sso_autologin.logger import get_logger, sanitize_trace_payload
@@ -37,7 +36,13 @@ class SessionChecker:
         try:
             # Try to get caller identity to check if session is active
             returncode, stdout, stderr = _run_subprocess_with_escalation(
-                [self._cli_path, "sts", "get-caller-identity", "--profile", profile.name],
+                [
+                    self._cli_path,
+                    "sts",
+                    "get-caller-identity",
+                    "--profile",
+                    profile.name,
+                ],
                 timeout=10,
             )
 
@@ -59,8 +64,12 @@ class SessionChecker:
                     "stderr_payload_truncated": stderr_payload["payload_truncated"],
                     "stdout_redaction_applied": stdout_payload["redaction_applied"],
                     "stderr_redaction_applied": stderr_payload["redaction_applied"],
-                    "stdout_detail_unavailable_reason": stdout_payload.get("detail_unavailable_reason"),
-                    "stderr_detail_unavailable_reason": stderr_payload.get("detail_unavailable_reason"),
+                    "stdout_detail_unavailable_reason": stdout_payload.get(
+                        "detail_unavailable_reason"
+                    ),
+                    "stderr_detail_unavailable_reason": stderr_payload.get(
+                        "detail_unavailable_reason"
+                    ),
                 },
             )
 
@@ -115,7 +124,12 @@ class SessionChecker:
             if "timed out" in message.lower():
                 logger.warning(
                     "session check timeout",
-                    extra={"event": "session_check_completed", "profile": profile.name, "status": "failed", "reason": "timeout"},
+                    extra={
+                        "event": "session_check_completed",
+                        "profile": profile.name,
+                        "status": "failed",
+                        "reason": "timeout",
+                    },
                 )
                 return SessionInfo(
                     profile_name=profile.name,
@@ -127,7 +141,12 @@ class SessionChecker:
 
             logger.error(
                 "session check error",
-                extra={"event": "session_check_completed", "profile": profile.name, "status": "failed", "error": str(exc)},
+                extra={
+                    "event": "session_check_completed",
+                    "profile": profile.name,
+                    "status": "failed",
+                    "error": str(exc),
+                },
             )
             return SessionInfo(
                 profile_name=profile.name,
@@ -137,7 +156,7 @@ class SessionChecker:
                 error_message=str(exc),
             )
 
-    def _get_remaining_time(self, profile: ProfileConfig) -> Optional[int]:
+    def _get_remaining_time(self, profile: ProfileConfig) -> int | None:
         """Get remaining session time in seconds.
 
         Args:
@@ -152,7 +171,10 @@ class SessionChecker:
         try:
             logger.debug(
                 "session remaining time probe started",
-                extra={"event": "session_remaining_probe_started", "profile": profile.name},
+                extra={
+                    "event": "session_remaining_probe_started",
+                    "profile": profile.name,
+                },
             )
             # Try to get credentials expiration
             _run_subprocess_with_escalation(

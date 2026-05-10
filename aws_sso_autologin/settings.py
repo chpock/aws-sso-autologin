@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -23,7 +23,7 @@ class RuntimeSettings:
 class RuntimeSettingsResolver:
     """Resolves runtime settings from defaults/config/env/CLI."""
 
-    def __init__(self, config_path: Optional[Path] = None) -> None:
+    def __init__(self, config_path: Path | None = None) -> None:
         self._config_path = config_path or self._default_config_path()
 
     def resolve(self, cli: dict[str, Any]) -> RuntimeSettings:
@@ -69,7 +69,9 @@ class RuntimeSettingsResolver:
 
         return bool(config.get("safe_mode", False))
 
-    def _resolve_tray_loss_behavior(self, config: dict[str, Any], cli: dict[str, Any]) -> str:
+    def _resolve_tray_loss_behavior(
+        self, config: dict[str, Any], cli: dict[str, Any]
+    ) -> str:
         value = (
             cli.get("tray_loss_behavior")
             or os.getenv("AWS_SSO_AUTOLOGIN_TRAY_LOSS_BEHAVIOR")

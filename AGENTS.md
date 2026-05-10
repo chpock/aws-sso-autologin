@@ -3,7 +3,7 @@
 ## Fast start (use these, do not guess)
 - `make prepare-dev` - create `.venv` (if missing), upgrade pip, install dependencies and dev dependencies (pytest, etc.). Use this for development.
 - `make prepare` - create `.venv` (if missing), upgrade pip, install runtime dependencies only.
-- `make test` - run full test suite via `.venv/bin/pytest`.
+- `make test` - run lint check, then test suite via `.venv/bin/pytest`.
 - `make test-verbose` - same with `-v`.
 
 ### For AI agents (automated/testing contexts)

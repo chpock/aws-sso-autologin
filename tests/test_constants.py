@@ -1,29 +1,29 @@
 """Tests for constants module."""
 
 from aws_sso_autologin.constants import (
-    SESSION_DURATION_SECONDS,
     CHECK_INTERVAL_SECONDS,
-    RENEWAL_THRESHOLD_PERCENT,
-    RENEWAL_THRESHOLD_SECONDS,
-    CLASSIFIER_MAX_TOKENS_PER_SAMPLE,
     CLASSIFIER_MAX_SAMPLES_PER_STREAM,
     CLASSIFIER_MAX_STREAMS,
+    CLASSIFIER_MAX_TOKENS_PER_SAMPLE,
     CLASSIFIER_MEMORY_KIB_PER_STREAM,
     CLASSIFIER_MEMORY_MIB_TOTAL,
+    HEARTBEAT_TIMEOUT_SECONDS,
     MAX_PROFILES_IN_ROOT_MENU,
     MAX_SUBMENU_PROFILES,
     MAX_TOTAL_PROFILES,
-    TOOLTIP_THROTTLE_SECONDS,
+    RENEWAL_THRESHOLD_PERCENT,
+    RENEWAL_THRESHOLD_SECONDS,
+    SESSION_DURATION_SECONDS,
     STATUS_WINDOW_REFRESH_MS,
-    HEARTBEAT_TIMEOUT_SECONDS,
+    TOOLTIP_THROTTLE_SECONDS,
 )
 from aws_sso_autologin.errors import (
     AutologinError,
-    TokenizationError,
+    AWSCliError,
     ClassificationError,
     CorpusError,
     OperatorError,
-    AWSCliError,
+    TokenizationError,
     TrayHostError,
 )
 
@@ -52,7 +52,9 @@ def test_classifier_token_limits():
 
 def test_classifier_memory_budget():
     assert CLASSIFIER_MEMORY_KIB_PER_STREAM == 48
-    expected_total_mib = CLASSIFIER_MEMORY_KIB_PER_STREAM * CLASSIFIER_MAX_STREAMS / 1024
+    expected_total_mib = (
+        CLASSIFIER_MEMORY_KIB_PER_STREAM * CLASSIFIER_MAX_STREAMS / 1024
+    )
     assert CLASSIFIER_MEMORY_MIB_TOTAL == expected_total_mib
 
 
