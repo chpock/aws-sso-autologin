@@ -178,12 +178,14 @@ def _run_aws_command(
         )
         
         if returncode != 0:
-            logger.warning(
-                "aws command completed with non-zero exit",
+            logger.info(
+                "aws command finished with non-zero exit",
                 extra={
                     "event": "aws_command_failed",
                     "status": "failed",
+                    "command": full_command,
                     "exit_code": returncode,
+                    "stdout_preview": (stdout or "")[:200],
                     "stderr_preview": (stderr or "")[:200],
                 },
             )

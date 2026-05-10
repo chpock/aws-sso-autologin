@@ -222,9 +222,11 @@ def test_run_aws_command_logs_failed_event_on_non_zero_exit():
 
     with patch("aws_sso_autologin.aws._run_subprocess_with_escalation") as mock_run:
         mock_run.return_value = (1, "", "boom")
-        with patch.object(aws.logger, "warning") as mock_warning:
+        with patch.object(aws.logger, "info") as mock_info:
             aws._run_aws_command(["sts", "get-caller-identity"], timeout=5)
 
-    extra = mock_warning.call_args.kwargs["extra"]
+    extra = mock_info.call_args.kwargs["extra"]
     assert extra["event"] == "aws_command_failed"
     assert extra["status"] == "failed"
+    assert extra["command"] == ["aws", "sts", "get-caller-identity"]
+    assert extra["exit_code"] == 1

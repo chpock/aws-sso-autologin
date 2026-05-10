@@ -297,14 +297,14 @@ class SessionOperator:
         if not info.is_active:
             if info.failure_type == SessionFailureType.EXPIRED_OR_INVALID:
                 logger.info(
-                    "Session for %s classified as expired/invalid, triggering login",
+                    "session %s classified as expired/invalid; triggering login",
                     profile.name,
                 )
                 self._login_operator.enqueue(profile.name)
                 return RenewalStatus.TRIGGERED
 
             logger.warning(
-                "Session for %s inactive without explicit expired/invalid classification; "
+                "session %s inactive without explicit expired/invalid classification; "
                 "skipping auto-login (failure_type=%s)",
                 profile.name,
                 info.failure_type.value,
@@ -320,7 +320,7 @@ class SessionOperator:
 
         if info.seconds_remaining <= RENEWAL_THRESHOLD_SECONDS:
             logger.debug(
-                "Session for %s below threshold (%ss <= %ss); waiting for explicit "
+                "session %s below threshold (%ss <= %ss); waiting for explicit "
                 "expired/invalid classifier hit before auto-login",
                 profile.name,
                 info.seconds_remaining,
@@ -404,14 +404,14 @@ class HealthOperator:
         self._last_heartbeat = time.time()
         self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self._monitor_thread.start()
-        logger.info("HealthOperator started")
+        logger.info("health monitor started")
 
     def stop(self) -> None:
         """Stop the health monitoring loop."""
         self._running = False
         if self._monitor_thread:
             self._monitor_thread.join(timeout=5)
-        logger.info("HealthOperator stopped")
+        logger.info("health monitor stopped")
 
     def _monitor_loop(self) -> None:
         """Main monitoring loop running every 30 seconds."""

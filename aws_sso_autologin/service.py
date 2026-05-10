@@ -250,7 +250,7 @@ def check_tray_host_available() -> bool:
     # 2. It supports at least one tray protocol (StatusNotifier or XEmbed)
     if info.host_type == TrayHostType.UNKNOWN:
         logger.warning(
-            "No compatible tray host detected",
+            "tray host unavailable: unknown desktop environment",
             extra={
                 "event": "tray_host_unavailable_unknown",
                 "normalized_event": "tray_host_probe_completed",
@@ -269,7 +269,7 @@ def check_tray_host_available() -> bool:
     
     if not info.supports_status_notifier and not info.supports_xembed:
         logger.warning(
-            f"Detected desktop {info.name} does not support required tray protocols",
+            "tray host unavailable: required tray protocols unsupported",
             extra={
                 "event": "tray_host_unavailable_protocol_mismatch",
                 "normalized_event": "tray_host_probe_completed",
@@ -368,7 +368,7 @@ class ConcreteTrayHost(TrayHost):
             if result.returncode == 0:
                 if self._consecutive_failures > 0:
                     logger.info(
-                        "Tray host heartbeat recovered",
+                        "tray host heartbeat recovered",
                         extra={
                             "event": "tray_host_heartbeat_recovered",
                             "host": self._info.name,
@@ -419,7 +419,7 @@ class ConcreteTrayHost(TrayHost):
     def _record_failure(self, reason: str) -> None:
         self._consecutive_failures += 1
         logger.warning(
-            "Tray host ping failed (%d consecutive): %s",
+            "tray host ping failed (%d consecutive): %s",
             self._consecutive_failures,
             reason,
             extra={
@@ -435,7 +435,7 @@ class ConcreteTrayHost(TrayHost):
 
         if not self._is_lost:
             logger.error(
-                "Tray host lost",
+                "tray host marked lost after ping failures",
                 extra={
                     "event": "tray_host_lost",
                     "host": self._info.name,
