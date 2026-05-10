@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +30,7 @@ class RuntimeSettings:
     log_format: str = "text"
     safe_mode: bool = False
     tray_loss_behavior: str = "pause"
+    profiles: dict[str, Any] = field(default_factory=dict)
 
 
 class RuntimeSettingsResolver:
@@ -45,6 +46,7 @@ class RuntimeSettingsResolver:
         log_format, lf_source = self._resolve_log_format(config, cli)
         safe_mode, sm_source = self._resolve_safe_mode(config, cli)
         tray_loss_behavior, tlb_source = self._resolve_tray_loss_behavior(config, cli)
+        profiles = self._resolve_profiles(config)
 
         logger.info(
             "Settings applied: log_level=%s (source: %s)",
@@ -72,6 +74,7 @@ class RuntimeSettingsResolver:
             log_format=log_format,
             safe_mode=safe_mode,
             tray_loss_behavior=tray_loss_behavior,
+            profiles=profiles,
         )
 
     def _resolve_log_level(
@@ -128,6 +131,12 @@ class RuntimeSettingsResolver:
         if config_val is not None and str(config_val).strip():
             return str(config_val).strip().lower(), "config"
         return "pause", "default"
+
+    def _resolve_profiles(self, config: dict[str, Any]) -> dict[str, Any]:
+        config_val = config.get("profiles")
+        if isinstance(config_val, dict):
+            return dict(config_val)
+        return {}
 
     def _default_config_path(self) -> Path:
         xdg = os.getenv("XDG_CONFIG_HOME")

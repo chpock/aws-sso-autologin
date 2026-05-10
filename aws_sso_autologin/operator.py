@@ -55,6 +55,7 @@ class LoginOperator:
         self._cli_executor = cli_executor or CLIExecutor()
         self._lock = threading.Lock()
         self._profile_locks: dict[str, float] = {}
+        self._browser_overrides: dict[str, list[str]] = {}
         self._queue: list[str] = []
         self._processing = False
         self._worker_thread: threading.Thread | None = None
@@ -105,11 +106,16 @@ class LoginOperator:
         with self._lock:
             self._profile_locks.pop(profile_name, None)
 
-    def enqueue(self, profile_name: str) -> LoginStatus:
+    def enqueue(
+        self,
+        profile_name: str,
+        browser: list[str] | None = None,
+    ) -> LoginStatus:
         """Enqueue a profile for login.
 
         Args:
             profile_name: Name of the profile to log in.
+            browser: Optional browser override command.
 
         Returns:
             Status indicating if the profile was queued or locked.
@@ -125,6 +131,8 @@ class LoginOperator:
                     },
                 )
                 return LoginStatus.LOCKED
+            if browser is not None:
+                self._browser_overrides[profile_name] = browser
             if profile_name not in self._queue:
                 self._queue.append(profile_name)
                 logger.info(
@@ -179,7 +187,10 @@ class LoginOperator:
                 "login processing started",
                 extra={"event": "login_processing_started", "profile": profile_name},
             )
-            stdout, stderr, returncode = self._cli_executor.execute_login(profile_name)
+            browser = self._browser_overrides.get(profile_name)
+            stdout, stderr, returncode = self._cli_executor.execute_login(
+                profile_name, browser=browser
+            )
             stdout_payload = sanitize_trace_payload(stdout)
             stderr_payload = sanitize_trace_payload(stderr)
             logger.log(
@@ -311,7 +322,7 @@ class SessionOperator:
                     "session %s classified as expired/invalid; triggering login",
                     profile.name,
                 )
-                self._login_operator.enqueue(profile.name)
+                self._login_operator.enqueue(profile.name, browser=profile.browser)
                 return RenewalStatus.TRIGGERED
 
             logger.warning(

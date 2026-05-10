@@ -648,6 +648,122 @@ def test_tray_host_recovery_does_not_clear_unrelated_global_error():
     app._tray.set_global_error.assert_not_called()
 
 
+def test_load_profiles_injects_browser_from_profile_config():
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    profile_browsers = {
+        "example": {
+            "browser": ["google-chrome", "--new-window"],
+        },
+    }
+    app = AutologinApp(
+        [],
+        profile_browsers=profile_browsers,
+    )
+    app._tray = Mock()
+    app._health_operator = Mock()
+
+    profile_info = Mock()
+    profile_info.name = "example"
+
+    with patch(
+        "aws_sso_autologin.__main__.discover_profiles", return_value=[profile_info]
+    ):
+        loaded = app._load_profiles()
+
+    assert loaded is True
+    assert len(app._profiles) == 1
+    assert app._profiles[0].name == "example"
+    assert app._profiles[0].browser == ["google-chrome", "--new-window"]
+
+
+def test_load_profiles_uses_none_browser_when_no_config_match():
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    app = AutologinApp([], profile_browsers={})
+    app._tray = Mock()
+    app._health_operator = Mock()
+
+    profile_info = Mock()
+    profile_info.name = "example"
+
+    with patch(
+        "aws_sso_autologin.__main__.discover_profiles", return_value=[profile_info]
+    ):
+        loaded = app._load_profiles()
+
+    assert loaded is True
+    assert len(app._profiles) == 1
+    assert app._profiles[0].browser is None
+
+
+def test_load_profiles_warns_on_orphaned_profile_config():
+    """WARNING log when configured profile has no matching discovered profile."""
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    profile_browsers = {
+        "nonexistent-profile": {
+            "browser": ["firefox", "--private"],
+        },
+    }
+    app = AutologinApp([], profile_browsers=profile_browsers)
+    app._tray = Mock()
+    app._health_operator = Mock()
+
+    profile_info = Mock()
+    profile_info.name = "actual-profile"
+
+    with patch(
+        "aws_sso_autologin.__main__.discover_profiles",
+        return_value=[profile_info],
+    ):
+        with patch("aws_sso_autologin.__main__.logger.warning") as mock_warning:
+            loaded = app._load_profiles()
+
+    assert loaded is True
+    orphan_calls = [
+        c
+        for c in mock_warning.call_args_list
+        if c.kwargs.get("extra", {}).get("event") == "profile_not_found"
+    ]
+    assert len(orphan_calls) == 1, (
+        f"Expected 1 structured WARNING about orphaned profile, got: {orphan_calls}"
+    )
+    assert orphan_calls[0].kwargs["extra"]["profile"] == "nonexistent-profile"
+
+
+def test_load_profiles_no_warning_when_all_configured_profiles_exist():
+    """No WARNING when all configured profiles match discovered profiles."""
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    profile_browsers = {
+        "existing": {"browser": ["chrome"]},
+    }
+    app = AutologinApp([], profile_browsers=profile_browsers)
+    app._tray = Mock()
+    app._health_operator = Mock()
+
+    profile_info = Mock()
+    profile_info.name = "existing"
+
+    with patch(
+        "aws_sso_autologin.__main__.discover_profiles",
+        return_value=[profile_info],
+    ):
+        with patch("aws_sso_autologin.__main__.logger.warning") as mock_warning:
+            loaded = app._load_profiles()
+
+    assert loaded is True
+    orphan_calls = [
+        c
+        for c in mock_warning.call_args_list
+        if c.kwargs.get("extra", {}).get("event") == "profile_not_found"
+    ]
+    assert len(orphan_calls) == 0, (
+        f"Expected no orphaned-profile WARNING, got: {orphan_calls}"
+    )
+
+
 def test_load_profiles_sets_syncing_until_first_status_update():
     from aws_sso_autologin.__main__ import AutologinApp
     from aws_sso_autologin.models import RenewalStatus, SessionFailureType, SessionInfo
@@ -721,3 +837,60 @@ def test_on_show_diagnostics_sets_recoverable_global_error_on_failure():
     assert called_box.setText.call_args.args[0] == (
         "Could not open details. Try again."
     )
+
+
+def test_load_profiles_logs_browser_override_when_configured():
+    """INFO log must report custom browser command as structured extra fields."""
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    profile_browsers = {
+        "p1": {"browser": ["firefox", "--private"]},
+    }
+    app = AutologinApp([], profile_browsers=profile_browsers)
+    app._tray = Mock()
+    app._health_operator = Mock()
+
+    p1 = Mock()
+    p1.name = "p1"
+
+    with patch("aws_sso_autologin.__main__.discover_profiles", return_value=[p1]):
+        with patch("aws_sso_autologin.__main__.logger.info") as mock_info:
+            app._load_profiles()
+
+    profile_calls = [
+        c
+        for c in mock_info.call_args_list
+        if c.kwargs.get("extra", {}).get("profile") == "p1"
+    ]
+    assert len(profile_calls) >= 1, (
+        f"Expected structured INFO about profile p1, got: {mock_info.call_args_list}"
+    )
+    extra = profile_calls[0].kwargs["extra"]
+    assert extra["browser"] == ["firefox", "--private"]
+
+
+def test_load_profiles_logs_default_browser_when_not_configured():
+    """INFO log must report default browser with extra fields."""
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    app = AutologinApp([], profile_browsers={})
+    app._tray = Mock()
+    app._health_operator = Mock()
+
+    p1 = Mock()
+    p1.name = "p1"
+
+    with patch("aws_sso_autologin.__main__.discover_profiles", return_value=[p1]):
+        with patch("aws_sso_autologin.__main__.logger.info") as mock_info:
+            app._load_profiles()
+
+    profile_calls = [
+        c
+        for c in mock_info.call_args_list
+        if c.kwargs.get("extra", {}).get("profile") == "p1"
+    ]
+    assert len(profile_calls) >= 1, (
+        f"Expected structured INFO about profile p1, got: {mock_info.call_args_list}"
+    )
+    extra = profile_calls[0].kwargs["extra"]
+    assert extra["browser"] is None

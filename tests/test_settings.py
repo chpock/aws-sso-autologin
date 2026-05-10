@@ -213,3 +213,30 @@ def test_config_safe_mode_truthy_string_resolves_true(tmp_path: Path):
     assert settings.safe_mode is True, (
         'Quoted "on" in config should be truthy and resolve to True'
     )
+
+
+def test_resolver_parses_profiles_from_config(tmp_path: Path):
+    """profiles section in config.yaml must be available on RuntimeSettings."""
+    config_dir = tmp_path / "aws-sso-autologin"
+    config_dir.mkdir(parents=True)
+    config_file = config_dir / "config.yaml"
+    config_file.write_text(
+        """
+config_version: 1
+profiles:
+  my-profile:
+    browser:
+      - google-chrome
+      - --profile-directory=Work
+      - --new-window
+""".strip()
+    )
+
+    resolver = RuntimeSettingsResolver(config_path=config_file)
+    settings = resolver.resolve(cli={})
+
+    assert settings.profiles == {
+        "my-profile": {
+            "browser": ["google-chrome", "--profile-directory=Work", "--new-window"],
+        },
+    }

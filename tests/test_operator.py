@@ -19,6 +19,28 @@ from aws_sso_autologin.operator import (
     SessionOperator,
 )
 
+# ==================== ProfileConfig Tests ====================
+
+
+def test_profile_config_supports_browser_field():
+    """ProfileConfig must accept an optional browser command list."""
+    config = ProfileConfig(
+        name="my-profile",
+        browser=["google-chrome", "--profile-directory=Work", "--new-window"],
+    )
+    assert config.browser == [
+        "google-chrome",
+        "--profile-directory=Work",
+        "--new-window",
+    ]
+
+
+def test_profile_config_browser_defaults_to_none():
+    """ProfileConfig browser must default to None when not specified."""
+    config = ProfileConfig(name="my-profile")
+    assert config.browser is None
+
+
 # ==================== HealthOperator Tests ====================
 
 
@@ -220,7 +242,30 @@ def test_session_operator_check_and_renew_inactive_expired_or_invalid():
         status = operator.check_and_renew(profile)
 
     assert status == RenewalStatus.TRIGGERED
-    mock_enqueue.assert_called_once_with("test")
+    mock_enqueue.assert_called_once_with("test", browser=None)
+
+
+def test_session_operator_passes_browser_to_enqueue():
+    """SessionOperator must pass profile.browser to LoginOperator.enqueue()."""
+    mock_checker = MagicMock()
+    mock_checker.get_session_info.return_value = SessionInfo(
+        profile_name="test",
+        is_active=False,
+        failure_type=SessionFailureType.EXPIRED_OR_INVALID,
+    )
+
+    operator = SessionOperator(checker=mock_checker)
+    profile = ProfileConfig(
+        name="test",
+        browser=["firefox", "--private"],
+    )
+
+    with patch.object(operator._login_operator, "enqueue") as mock_enqueue:
+        mock_enqueue.return_value = LoginStatus.PENDING
+        status = operator.check_and_renew(profile)
+
+    assert status == RenewalStatus.TRIGGERED
+    mock_enqueue.assert_called_once_with("test", browser=["firefox", "--private"])
 
 
 def test_session_operator_check_and_renew_unknown_time():
@@ -363,6 +408,38 @@ def test_login_operator_acquire_and_release_lock():
     # Release lock
     operator._release_profile_lock("profile1")
     assert "profile1" not in operator._profile_locks
+
+
+def test_login_operator_passes_browser_to_execute_login():
+    """LoginOperator must pass browser override to CLIExecutor.execute_login."""
+    mock_executor = MagicMock()
+    mock_executor.execute_login.return_value = ("", "", 0)
+
+    operator = LoginOperator(cli_executor=mock_executor)
+    with patch.object(operator, "_start_worker"):
+        operator.enqueue("test-profile", browser=["firefox", "--private"])
+
+    with patch.object(operator, "_acquire_profile_lock", return_value=True):
+        operator._process_login("test-profile")
+
+    mock_executor.execute_login.assert_called_once_with(
+        "test-profile", browser=["firefox", "--private"]
+    )
+
+
+def test_login_operator_execute_login_without_browser_uses_none():
+    """LoginOperator must pass browser=None when no override configured."""
+    mock_executor = MagicMock()
+    mock_executor.execute_login.return_value = ("", "", 0)
+
+    operator = LoginOperator(cli_executor=mock_executor)
+    with patch.object(operator, "_start_worker"):
+        operator.enqueue("test-profile")
+
+    with patch.object(operator, "_acquire_profile_lock", return_value=True):
+        operator._process_login("test-profile")
+
+    mock_executor.execute_login.assert_called_once_with("test-profile", browser=None)
 
 
 # ==================== Constants Tests ====================

@@ -31,6 +31,7 @@ class ProfileConfig:
     region: str | None = None
     sso_account_id: str | None = None
     sso_role_name: str | None = None
+    browser: list[str] | None = None
 
 
 @dataclass

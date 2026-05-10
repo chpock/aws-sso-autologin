@@ -150,11 +150,16 @@ class AutologinApp:
     - Runs Qt event loop
     """
 
-    def __init__(self, args: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        args: list[str] | None = None,
+        profile_browsers: dict[str, Any] | None = None,
+    ) -> None:
         """Initialize the autologin application.
 
         Args:
             args: Command line arguments (defaults to sys.argv)
+            profile_browsers: Per-profile browser configuration from settings.
         """
         self._args = args or sys.argv
         self._app: QApplication | None = None
@@ -182,6 +187,7 @@ class AutologinApp:
         self._monitoring_enabled = True
         self._profile_status: dict[str, ProfileStatus] = {}
         self._last_diagnostics_params: tuple[str, str, bool] | None = None
+        self._profile_browsers: dict[str, Any] = profile_browsers or {}
 
         logger.debug("AutologinApp: Initialized")
 
@@ -597,9 +603,39 @@ class AutologinApp:
 
             # Convert ProfileInfo to ProfileConfig
             self._profiles = []
+            discovered_names = {info.name for info in profile_infos}
             for info in profile_infos:
-                config = ProfileConfig(name=info.name)
+                browser = self._profile_browsers.get(info.name, {}).get("browser")
+                config = ProfileConfig(name=info.name, browser=browser)
                 self._profiles.append(config)
+                if browser:
+                    logger.info(
+                        "profile uses custom browser",
+                        extra={
+                            "event": "profile_browser_resolved",
+                            "profile": info.name,
+                            "browser": browser,
+                        },
+                    )
+                else:
+                    logger.info(
+                        "profile uses default browser",
+                        extra={
+                            "event": "profile_browser_resolved",
+                            "profile": info.name,
+                            "browser": None,
+                        },
+                    )
+
+            for configured_name in self._profile_browsers:
+                if configured_name not in discovered_names:
+                    logger.warning(
+                        "configured profile not found in AWS config",
+                        extra={
+                            "event": "profile_not_found",
+                            "profile": configured_name,
+                        },
+                    )
 
             logger.info(f"Loaded {len(self._profiles)} SSO profiles")
 
@@ -1014,7 +1050,10 @@ def main(args: list[str] | None = None) -> int:
     if cli_state.get("check_only"):
         return _run_preflight_check()
 
-    app = AutologinApp(["aws-sso-autologin", *raw_args])
+    app = AutologinApp(
+        ["aws-sso-autologin", *raw_args],
+        profile_browsers=settings.profiles,
+    )
 
     logger.info(
         "Application startup",
