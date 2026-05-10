@@ -12,7 +12,6 @@ from aws_sso_autologin.constants import (
     CHECK_INTERVAL_SECONDS,
     HEARTBEAT_TIMEOUT_SECONDS,
     LOGIN_LOCK_SECONDS,
-    RENEWAL_THRESHOLD_SECONDS,
 )
 from aws_sso_autologin.logger import get_logger, sanitize_trace_payload
 from aws_sso_autologin.models import (
@@ -323,26 +322,6 @@ class SessionOperator:
             )
             return RenewalStatus.UNKNOWN
 
-        if info.seconds_remaining is None:
-            logger.warning(
-                "session remaining time unavailable",
-                extra={
-                    "event": "session_remaining_unavailable",
-                    "profile": profile.name,
-                },
-            )
-            return RenewalStatus.UNKNOWN
-
-        if info.seconds_remaining <= RENEWAL_THRESHOLD_SECONDS:
-            logger.debug(
-                "session %s below threshold (%ss <= %ss); waiting for explicit "
-                "expired/invalid classifier hit before auto-login",
-                profile.name,
-                info.seconds_remaining,
-                RENEWAL_THRESHOLD_SECONDS,
-            )
-            return RenewalStatus.NOT_NEEDED
-
         return RenewalStatus.NOT_NEEDED
 
     def get_all_profiles_needing_renewal(
@@ -460,7 +439,6 @@ class HealthOperator:
                 fallback_info = SessionInfo(
                     profile_name=profile.name,
                     is_active=False,
-                    seconds_remaining=None,
                     failure_type=SessionFailureType.CHECK_ERROR,
                     error_message=str(e),
                 )

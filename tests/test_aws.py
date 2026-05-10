@@ -3,40 +3,16 @@
 import os
 import stat
 import subprocess
-from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from aws_sso_autologin.aws import (
     ProfileInfo,
-    SessionCheckResult,
-    SessionStatus,
-    check_session_valid,
     discover_profiles,
     run_sso_login,
 )
 from aws_sso_autologin.errors import AWSCliError
-
-
-def test_check_session_valid_returns_tuple():
-    from aws_sso_autologin.aws import check_session_valid
-
-    result = check_session_valid("test-profile")
-    assert isinstance(result, tuple)
-    assert len(result) == 3
-
-
-def test_session_check_result_namedtuple():
-    """Test SessionCheckResult is a named tuple with expected fields."""
-    result = SessionCheckResult(
-        is_valid=True,
-        expires_at=datetime.now(),
-        error_message=None,
-    )
-    assert result.is_valid is True
-    assert result.expires_at is not None
-    assert result.error_message is None
 
 
 def test_profile_info_namedtuple():
@@ -47,37 +23,6 @@ def test_profile_info_namedtuple():
     )
     assert profile.name == "test-profile"
     assert profile.is_sso is True
-
-
-def test_session_status_enum():
-    """Test SessionStatus enum has expected values."""
-    assert SessionStatus.UNKNOWN.value == "unknown"
-    assert SessionStatus.VALID.value == "valid"
-    assert SessionStatus.EXPIRED.value == "expired"
-    assert SessionStatus.INVALID.value == "invalid"
-    assert SessionStatus.ERROR.value == "error"
-
-
-def test_check_session_valid_returns_session_check_result():
-    """Test check_session_valid returns SessionCheckResult fields."""
-    result = check_session_valid("test-profile")
-    assert len(result) == 3
-    # Result should be (is_valid: bool, expires_at: Optional[datetime],"
-    # error: Optional[str])
-    assert isinstance(result[0], bool)
-    # expires_at is either datetime or None
-    assert result[1] is None or isinstance(result[1], datetime)
-    # error is either str or None
-    assert result[2] is None or isinstance(result[2], str)
-
-
-def test_check_session_valid_with_invalid_profile():
-    """Test check_session_valid handles non-existent profile."""
-    with patch("subprocess.run") as mock_run:
-        mock_run.side_effect = Exception("Profile not found")
-        result = check_session_valid("nonexistent-profile")
-        assert result[0] is False  # not valid
-        assert result[2] is not None  # has error message
 
 
 def test_run_sso_login_exists():
@@ -116,21 +61,6 @@ def test_run_sso_login_accepts_profile():
         command = mock_run.call_args.args[0]
         assert command[:4] == ["aws", "sso", "login", "--profile"]
         assert command[4] == "test-profile"
-
-
-def test_check_session_valid_calls_aws_sts():
-    """Test check_session_valid calls aws sts get-caller-identity."""
-    with patch("aws_sso_autologin.aws._run_subprocess_with_escalation") as mock_run:
-        mock_run.return_value = (
-            0,
-            '{"Account": "123456789", "Arn": "arn:aws:sts::123456789:assumed-role"'
-            '":test"}',
-            "",
-        )
-        check_session_valid("test-profile")
-        mock_run.assert_called_once()
-        command = mock_run.call_args.args[0]
-        assert command[:3] == ["aws", "sts", "get-caller-identity"]
 
 
 def test_discover_profiles_returns_profile_info():

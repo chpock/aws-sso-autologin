@@ -214,7 +214,6 @@ def test_autologin_app_on_status_change():
         info = SessionInfo(
             profile_name="test-profile",
             is_active=True,
-            seconds_remaining=300,
             failure_type=SessionFailureType.NONE,
         )
         app._on_status_change("test-profile", RenewalStatus.NOT_NEEDED, info)
@@ -232,7 +231,6 @@ def test_on_status_change_expired_invalid_sets_syncing_state():
     info = SessionInfo(
         profile_name="test-profile",
         is_active=False,
-        seconds_remaining=0,
         failure_type=SessionFailureType.EXPIRED_OR_INVALID,
         error_message="The SSO session has expired",
     )
@@ -255,7 +253,6 @@ def test_on_status_change_timeout_sets_warning_state():
     info = SessionInfo(
         profile_name="test-profile",
         is_active=False,
-        seconds_remaining=0,
         failure_type=SessionFailureType.TIMEOUT,
         error_message="AWS command timed out after 10s and was terminated",
     )
@@ -278,7 +275,6 @@ def test_on_status_change_active_without_remaining_time_stays_ok():
     info = SessionInfo(
         profile_name="test-profile",
         is_active=True,
-        seconds_remaining=None,
         failure_type=SessionFailureType.NONE,
     )
 
@@ -299,7 +295,6 @@ def test_on_status_change_permission_denied_sets_error_state():
     info = SessionInfo(
         profile_name="test-profile",
         is_active=False,
-        seconds_remaining=0,
         failure_type=SessionFailureType.PERMISSION_DENIED,
         error_message="AccessDenied: User is not authorized",
     )
@@ -323,7 +318,6 @@ def test_on_status_change_check_error_sets_error_state():
     info = SessionInfo(
         profile_name="test-profile",
         is_active=False,
-        seconds_remaining=None,
         failure_type=SessionFailureType.CHECK_ERROR,
         error_message="subprocess failure",
     )
@@ -346,7 +340,6 @@ def test_on_status_change_other_failure_uses_connectivity_copy():
     info = SessionInfo(
         profile_name="test-profile",
         is_active=False,
-        seconds_remaining=0,
         failure_type=SessionFailureType.OTHER,
         error_message="Could not connect to endpoint URL",
     )
@@ -381,7 +374,6 @@ def test_indeterminate_failure_does_not_clear_error_state():
     info = SessionInfo(
         profile_name="dev",
         is_active=False,
-        seconds_remaining=0,
         failure_type=SessionFailureType.OTHER,
         error_message="Could not connect to endpoint URL",
     )
@@ -679,7 +671,6 @@ def test_load_profiles_sets_syncing_until_first_status_update():
     info = SessionInfo(
         profile_name="example",
         is_active=True,
-        seconds_remaining=300,
         failure_type=SessionFailureType.NONE,
     )
     app._on_status_change("example", RenewalStatus.NOT_NEEDED, info)

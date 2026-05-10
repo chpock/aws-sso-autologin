@@ -11,9 +11,6 @@ from aws_sso_autologin.constants import (
     MAX_PROFILES_IN_ROOT_MENU,
     MAX_SUBMENU_PROFILES,
     MAX_TOTAL_PROFILES,
-    RENEWAL_THRESHOLD_PERCENT,
-    RENEWAL_THRESHOLD_SECONDS,
-    SESSION_DURATION_SECONDS,
     STATUS_WINDOW_REFRESH_MS,
     TOOLTIP_THROTTLE_SECONDS,
 )
@@ -28,20 +25,8 @@ from aws_sso_autologin.errors import (
 )
 
 
-def test_session_duration_constant():
-    assert SESSION_DURATION_SECONDS == 3600
-
-
 def test_check_interval_constant():
     assert CHECK_INTERVAL_SECONDS == 30
-
-
-def test_renewal_threshold_percent():
-    assert RENEWAL_THRESHOLD_PERCENT == 0.5
-
-
-def test_renewal_threshold_seconds():
-    assert RENEWAL_THRESHOLD_SECONDS == 1800
 
 
 def test_classifier_token_limits():

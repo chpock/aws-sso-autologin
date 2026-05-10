@@ -6,18 +6,14 @@ This module provides functions to interact with AWS CLI for:
 - Discovering AWS profiles
 """
 
-import json
 import os
 import shlex
 import stat
 import subprocess
 import tempfile
 import time
-from datetime import datetime, timedelta
-from enum import Enum
 from typing import NamedTuple
 
-from aws_sso_autologin.constants import SESSION_DURATION_SECONDS
 from aws_sso_autologin.errors import AWSCliError
 from aws_sso_autologin.logger import get_logger, sanitize_trace_payload
 
@@ -166,30 +162,6 @@ def _run_subprocess_with_escalation(
             )
 
 
-class SessionStatus(Enum):
-    """Session status values."""
-
-    UNKNOWN = "unknown"
-    VALID = "valid"
-    EXPIRED = "expired"
-    INVALID = "invalid"
-    ERROR = "error"
-
-
-class SessionCheckResult(NamedTuple):
-    """Result of a session validity check.
-
-    Attributes:
-        is_valid: Whether the session is currently valid
-        expires_at: When the session expires (None if unknown/invalid)
-        error_message: Error message if check failed, None otherwise
-    """
-
-    is_valid: bool
-    expires_at: datetime | None
-    error_message: str | None
-
-
 class ProfileInfo(NamedTuple):
     """Information about an AWS profile.
 
@@ -308,143 +280,6 @@ def _run_aws_command(
             extra={"event": "aws_command_failed", "status": "failed", "error": str(e)},
         )
         raise AWSCliError(error_msg)
-
-
-def check_session_valid(profile: str) -> tuple[bool, datetime | None, str | None]:
-    """Check if an AWS SSO session is valid.
-
-    Uses `aws sts get-caller-identity` to verify session validity.
-    If the session is expired or invalid, the command will fail with
-    an authorization error.
-
-    Args:
-        profile: AWS profile name to check
-
-    Returns:
-        Tuple of (is_valid: bool, expires_at: Optional[datetime], error: Optional[str])
-        - is_valid: True if session is valid, False otherwise
-        - expires_at: Estimated expiration time (now + 1 hour) if valid, None otherwise
-        - error: Error message if check failed, None otherwise
-    """
-    try:
-        exit_code, stdout, stderr = _run_aws_command(
-            ["sts", "get-caller-identity", "--profile", profile],
-            timeout=10,
-            operation_context="validate_session",
-        )
-
-        if exit_code == 0:
-            # Session is valid - parse response to get account info
-            try:
-                data = json.loads(stdout)
-                account = data.get("Account", "unknown")
-                arn = data.get("Arn", "unknown")
-                logger.debug(
-                    "session valid",
-                    extra={
-                        "event": "session_check_completed",
-                        "profile": profile,
-                        "status": "valid",
-                        "account": account,
-                        "arn": arn,
-                    },
-                )
-
-                # Estimate expiration as now + session duration
-                # Note: Actual expiration may vary based on SSO configuration
-                expires_at = datetime.now() + timedelta(
-                    seconds=SESSION_DURATION_SECONDS
-                )
-
-                return True, expires_at, None
-            except json.JSONDecodeError:
-                # Response wasn't valid JSON, but command succeeded
-                logger.debug(
-                    "session valid with non-json response",
-                    extra={
-                        "event": "session_check_completed",
-                        "profile": profile,
-                        "status": "valid",
-                        "response_format": "non_json",
-                    },
-                )
-                expires_at = datetime.now() + timedelta(
-                    seconds=SESSION_DURATION_SECONDS
-                )
-                return True, expires_at, None
-        else:
-            # Session is invalid or expired
-            error_msg = stderr.strip() if stderr else "Unknown error"
-            logger.debug(
-                "session invalid",
-                extra={
-                    "event": "session_check_completed",
-                    "profile": profile,
-                    "status": "invalid",
-                    "error_preview": error_msg[:200],
-                },
-            )
-
-            # Check if this is an SSO expiration error
-            if _is_sso_expired_error(error_msg):
-                return False, None, "SSO session expired"
-            else:
-                return False, None, error_msg
-
-    except AWSCliError as e:
-        logger.error(
-            "session check failed",
-            extra={
-                "event": "session_check_completed",
-                "profile": profile,
-                "status": "failed",
-                "error": str(e),
-            },
-        )
-        return False, None, str(e)
-    except Exception as e:
-        logger.error(
-            "session check failed with unexpected error",
-            extra={
-                "event": "session_check_completed",
-                "profile": profile,
-                "status": "failed",
-                "error": str(e),
-            },
-        )
-        return False, None, str(e)
-
-
-def _is_sso_expired_error(error_message: str) -> bool:
-    """Check if an error message indicates an expired SSO session.
-
-    This function looks for common patterns in AWS CLI error messages
-    that indicate an SSO session has expired.
-
-    Args:
-        error_message: The error message from AWS CLI
-
-    Returns:
-        True if the error indicates an expired SSO session
-    """
-    error_lower = error_message.lower()
-
-    # Common SSO expiration error patterns
-    expired_patterns = [
-        "token has expired",
-        "sso token has expired",
-        "session has expired",
-        "expired token",
-        "unauthorizedexception",
-        "invalidaccesskeyid",
-        "signature expired",
-        "request has expired",
-        "credentials have expired",
-        "unable to locate credentials",
-        "no credentials found",
-    ]
-
-    return any(pattern in error_lower for pattern in expired_patterns)
 
 
 def run_sso_login(

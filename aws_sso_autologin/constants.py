@@ -1,12 +1,6 @@
 """Application constants."""
 
-# Session timing
-SESSION_DURATION_SECONDS = 3600  # 1 hour AWS SSO session
 CHECK_INTERVAL_SECONDS = 30  # Check every 30 seconds
-RENEWAL_THRESHOLD_PERCENT = 0.5  # Renew at 50% elapsed (30 minutes)
-RENEWAL_THRESHOLD_SECONDS = (
-    SESSION_DURATION_SECONDS * RENEWAL_THRESHOLD_PERCENT
-)  # 1800 seconds
 
 # Classification budgets
 CLASSIFIER_MAX_TOKENS_PER_SAMPLE = 64

@@ -39,8 +39,6 @@ class SessionInfo:
 
     profile_name: str
     is_active: bool
-    seconds_remaining: int | None = None
-    expiration_time: str | None = None
     failure_type: SessionFailureType = SessionFailureType.NONE
     error_message: str | None = None
 

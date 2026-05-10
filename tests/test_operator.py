@@ -13,7 +13,6 @@ from aws_sso_autologin.operator import (
     CHECK_INTERVAL_SECONDS,
     HEARTBEAT_TIMEOUT_SECONDS,
     LOGIN_LOCK_SECONDS,
-    RENEWAL_THRESHOLD_SECONDS,
     HealthOperator,
     LoginOperator,
     LoginStatus,
@@ -71,7 +70,6 @@ def test_health_operator_force_check():
     mock_checker.get_session_info.return_value = SessionInfo(
         profile_name="test",
         is_active=True,
-        seconds_remaining=3600,
     )
 
     operator = HealthOperator(checker=mock_checker)
@@ -99,7 +97,6 @@ def test_health_operator_callback_exception_does_not_break_check_loop():
     mock_checker.get_session_info.return_value = SessionInfo(
         profile_name="profile1",
         is_active=True,
-        seconds_remaining=3600,
     )
 
     operator = HealthOperator(checker=mock_checker)
@@ -139,7 +136,6 @@ def test_session_operator_check_and_renew_active_session():
     mock_checker.get_session_info.return_value = SessionInfo(
         profile_name="test",
         is_active=True,
-        seconds_remaining=3600,  # 1 hour remaining
     )
 
     operator = SessionOperator(checker=mock_checker)
@@ -153,12 +149,11 @@ def test_session_operator_check_and_renew_active_session():
 
 
 def test_session_operator_check_and_renew_threshold():
-    """Threshold alone does not trigger renewal without classifier hit."""
+    """Active sessions return NOT_NEEDED regardless of time remaining."""
     mock_checker = MagicMock()
     mock_checker.get_session_info.return_value = SessionInfo(
         profile_name="test",
         is_active=True,
-        seconds_remaining=RENEWAL_THRESHOLD_SECONDS,  # Exactly at threshold
     )
 
     operator = SessionOperator(checker=mock_checker)
@@ -177,7 +172,6 @@ def test_session_operator_check_and_renew_below_threshold():
     mock_checker.get_session_info.return_value = SessionInfo(
         profile_name="test",
         is_active=True,
-        seconds_remaining=1000,  # Less than 30 min
     )
 
     operator = SessionOperator(checker=mock_checker)
@@ -196,7 +190,6 @@ def test_session_operator_check_and_renew_inactive():
     mock_checker.get_session_info.return_value = SessionInfo(
         profile_name="test",
         is_active=False,
-        seconds_remaining=0,
         failure_type=SessionFailureType.OTHER,
     )
 
@@ -216,7 +209,6 @@ def test_session_operator_check_and_renew_inactive_expired_or_invalid():
     mock_checker.get_session_info.return_value = SessionInfo(
         profile_name="test",
         is_active=False,
-        seconds_remaining=0,
         failure_type=SessionFailureType.EXPIRED_OR_INVALID,
     )
 
@@ -232,12 +224,11 @@ def test_session_operator_check_and_renew_inactive_expired_or_invalid():
 
 
 def test_session_operator_check_and_renew_unknown_time():
-    """Test check_and_renew when remaining time is unknown."""
+    """Active sessions return NOT_NEEDED regardless of time info."""
     mock_checker = MagicMock()
     mock_checker.get_session_info.return_value = SessionInfo(
         profile_name="test",
         is_active=True,
-        seconds_remaining=None,
     )
 
     operator = SessionOperator(checker=mock_checker)
@@ -246,7 +237,7 @@ def test_session_operator_check_and_renew_unknown_time():
     with patch.object(operator._login_operator, "enqueue") as mock_enqueue:
         status = operator.check_and_renew(profile)
 
-    assert status == RenewalStatus.UNKNOWN
+    assert status == RenewalStatus.NOT_NEEDED
     mock_enqueue.assert_not_called()
 
 
@@ -254,9 +245,9 @@ def test_session_operator_get_profiles_needing_renewal():
     """Only profiles with explicit expired/invalid classification need renewal."""
     mock_checker = MagicMock()
     mock_checker.get_session_info.side_effect = [
-        SessionInfo("p1", True, 3600),  # Not needed
-        SessionInfo("p2", True, 1000),  # Active with low remaining time
-        SessionInfo("p3", False, 0, failure_type=SessionFailureType.EXPIRED_OR_INVALID),
+        SessionInfo("p1", True),  # Not needed
+        SessionInfo("p2", True),  # Active
+        SessionInfo("p3", False, failure_type=SessionFailureType.EXPIRED_OR_INVALID),
     ]
 
     operator = SessionOperator(checker=mock_checker)
@@ -385,11 +376,6 @@ def test_check_interval_constant():
 def test_heartbeat_timeout_constant():
     """Test that heartbeat timeout is 5 minutes (300 seconds)."""
     assert HEARTBEAT_TIMEOUT_SECONDS == 300
-
-
-def test_renewal_threshold_constant():
-    """Test that renewal threshold is 30 minutes (1800 seconds)."""
-    assert RENEWAL_THRESHOLD_SECONDS == 1800
 
 
 def test_login_lock_constant():
