@@ -8,21 +8,32 @@ from typing import Any
 
 import typer
 from click.exceptions import ClickException
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import QApplication
 
 from aws_sso_autologin import VERSION_SOURCE, __version__
 from aws_sso_autologin.aws import discover_profiles
 from aws_sso_autologin.constants import CHECK_INTERVAL_SECONDS
-from aws_sso_autologin.logger import configure_logging, get_logger
-from aws_sso_autologin.mode_policy import ExecutionMode, get_execution_mode
+from aws_sso_autologin.logger import (
+    configure_logging,
+    get_logger,
+    install_qt_message_handler,
+)
+from aws_sso_autologin.mode_policy import (
+    ExecutionMode,
+    get_execution_mode,
+)
 from aws_sso_autologin.models import (
     ProfileConfig,
     RenewalStatus,
     SessionFailureType,
     SessionInfo,
 )
-from aws_sso_autologin.operator import HealthOperator, LoginOperator, SessionOperator
+from aws_sso_autologin.operator import (
+    HealthOperator,
+    LoginOperator,
+    SessionOperator,
+)
 from aws_sso_autologin.service import (
     TrayHost,
     check_tray_host_available,
@@ -39,6 +50,13 @@ from aws_sso_autologin.tray import (
 from aws_sso_autologin.watchdog import AutomationWatchdog, WatchdogTimeout
 
 logger = get_logger(__name__)
+
+
+class _StatusUpdateBridge(QObject):
+    """Bridge status updates from worker threads to the Qt main thread."""
+
+    status_update = Signal(str, object, object)
+
 
 TRAY_HOST_REQUIRED_MESSAGE = (
     "Tray host support is required. Start this app in a Linux session "
@@ -149,6 +167,7 @@ class AutologinApp:
         self._tray_host: TrayHost | None = None
         self._tray_host_timer: QTimer | None = None
         self._signal_pump_timer: QTimer | None = None
+        self._status_update_bridge: _StatusUpdateBridge | None = None
         self._tray_host_loss_announced = False
         self._global_error_source: str | None = None
         self._awaiting_initial_status = False
@@ -327,8 +346,13 @@ class AutologinApp:
         Connects health operator status changes to tray updates.
         """
         if self._health_operator and self._tray:
-            # Connect health status changes to tray updates
-            self._health_operator.set_status_callback(self._on_status_change)
+            # Route worker-thread status updates through Qt signal queue so
+            # tray mutations always run in the GUI thread.
+            self._status_update_bridge = _StatusUpdateBridge()
+            self._status_update_bridge.status_update.connect(self._on_status_change)
+            self._health_operator.set_status_callback(
+                self._status_update_bridge.status_update.emit
+            )
             logger.debug("AutologinApp: Signals wired")
 
     def _build_diagnostics_details(self, status: SessionInfo) -> str:
@@ -909,6 +933,7 @@ def main(args: list[str] | None = None) -> int:
     resolver = RuntimeSettingsResolver()
     settings = resolver.resolve(cli=cli_state)
     configure_logging(level_name=settings.log_level, log_format=settings.log_format)
+    install_qt_message_handler()
 
     if cli_state.get("version"):
         print(__version__)

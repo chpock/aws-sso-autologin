@@ -6,6 +6,13 @@ import re
 import sys
 from typing import Any
 
+try:
+    from PySide6.QtCore import QtMsgType, qInstallMessageHandler
+except ImportError:
+    QtMsgType = None  # type: ignore[misc,assignment]
+    qInstallMessageHandler = None  # noqa: N816
+
+
 # Track all loggers created by get_logger
 _created_loggers: set[logging.Logger] = set()
 
@@ -331,3 +338,53 @@ def set_debug_mode(enabled: bool = True) -> None:
         logger.setLevel(level)
         for handler in logger.handlers:
             handler.setLevel(level)
+
+
+def install_qt_message_handler() -> object | None:
+    """Install Qt message handler to redirect Qt logs to Python logging.
+
+    This captures Qt warnings (like QObject thread warnings) and routes them
+    through Python's logging system instead of stdout.
+    """
+    if qInstallMessageHandler is None or QtMsgType is None:
+        logging.getLogger(__name__).debug("Qt not available, skipping message handler")
+        return None
+
+    qt_logger = logging.getLogger("PySide6.Qt")
+
+    def qt_message_handler(mode: QtMsgType, context: object, message: str) -> None:
+        """Handle Qt messages and route to Python logging."""
+        # Map Qt message types to Python log levels
+        level_map = {
+            QtMsgType.QtDebugMsg: logging.DEBUG,
+            QtMsgType.QtInfoMsg: logging.INFO,
+            QtMsgType.QtWarningMsg: logging.WARNING,
+            QtMsgType.QtCriticalMsg: logging.ERROR,
+            QtMsgType.QtFatalMsg: logging.CRITICAL,
+        }
+        level = level_map.get(mode, logging.WARNING)
+
+        # Build context info
+        context_parts = []
+        if hasattr(context, "file") and context.file:
+            context_parts.append(f"file={context.file}")
+        if hasattr(context, "line") and context.line:
+            context_parts.append(f"line={context.line}")
+        if hasattr(context, "function") and context.function:
+            context_parts.append(f"function={context.function}")
+
+        # Log line-by-line so multiline Qt warnings do not leak unprefixed
+        # continuation lines to stdout formatting.
+        lines = [line for line in message.splitlines() if line.strip()]
+        if not lines:
+            lines = [message]
+
+        for index, line in enumerate(lines):
+            if index == 0 and context_parts:
+                qt_logger.log(level, f"{line} ({' '.join(context_parts)})")
+            else:
+                qt_logger.log(level, line)
+
+    previous_handler = qInstallMessageHandler(qt_message_handler)
+    qt_logger.debug("Qt message handler installed")
+    return previous_handler

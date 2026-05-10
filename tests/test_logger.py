@@ -4,9 +4,13 @@ import json
 import logging
 import sys
 
+import pytest
+
+from aws_sso_autologin import logger as logger_module
 from aws_sso_autologin.logger import (
     configure_logging,
     get_logger,
+    install_qt_message_handler,
     sanitize_trace_payload,
     set_debug_mode,
 )
@@ -250,3 +254,61 @@ def test_sanitize_trace_payload_redacts_presigned_url_signature():
     assert "abcdef1234567890" not in sanitized["value"]
     assert "tok123" not in sanitized["value"]
     assert sanitized["redaction_applied"] is True
+
+
+def test_install_qt_message_handler_returns_previous_handler(monkeypatch):
+    previous_handler = object()
+
+    monkeypatch.setattr(logger_module, "QtMsgType", object())
+
+    def fake_install(handler):
+        assert callable(handler)
+        return previous_handler
+
+    monkeypatch.setattr(logger_module, "qInstallMessageHandler", fake_install)
+
+    returned_handler = install_qt_message_handler()
+
+    assert returned_handler is previous_handler
+
+
+def test_qt_warning_multiline_is_logged_line_by_line(capsys):
+    qt_core = pytest.importorskip("PySide6.QtCore")
+    q_warning = getattr(qt_core, "qWarning", None)
+    if q_warning is None:
+        pytest.skip("qWarning is unavailable in this PySide6 build")
+
+    root_logger = logging.getLogger()
+    original_level = root_logger.level
+    original_handlers = list(root_logger.handlers)
+    previous_qt_handler = None
+
+    try:
+        configure_logging(level_name="debug", log_format="text")
+        previous_qt_handler = install_qt_message_handler()
+
+        q_warning(
+            "QObject: Cannot create children for a parent that is in a"
+            " different thread.\n(Parent is QMenu(0x1), parent's thread"
+            " is QThread(0x2), current thread is QThread(0x3)"
+        )
+
+        output = capsys.readouterr().out
+        warning_lines = [
+            line for line in output.splitlines() if "WARNING [PySide6.Qt]" in line
+        ]
+
+        assert len(warning_lines) == 2
+        assert (
+            "QObject: Cannot create children for a parent that is in a"
+            in warning_lines[0]
+        )
+        assert (
+            "(Parent is QMenu(0x1), parent's thread is QThread(0x2),"
+            in warning_lines[1]
+        )
+    finally:
+        qt_core.qInstallMessageHandler(previous_qt_handler)
+        root_logger.handlers.clear()
+        root_logger.handlers.extend(original_handlers)
+        root_logger.setLevel(original_level)
