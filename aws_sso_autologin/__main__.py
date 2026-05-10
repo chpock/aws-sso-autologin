@@ -468,9 +468,9 @@ class AutologinApp:
         self, summary: str, details: str, is_config_error: bool = False
     ) -> None:
         """Handle diagnostics action from tray menu."""
-        logger.error("Diagnostics requested: %s", summary)
+        logger.info("Diagnostics requested: %s", summary)
         if details:
-            logger.debug("Diagnostics details: %s", details)
+            logger.log(5, "Diagnostics details: %s", details)
 
         logger.info(
             "Creating ErrorDetailsDialog for summary: %s (config_error=%s)",

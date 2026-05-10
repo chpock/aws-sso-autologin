@@ -92,6 +92,115 @@ def test_configure_logging_uses_text_formatter_by_default():
     assert formatter_name == "TextFormatter"
 
 
+def test_text_formatter_includes_extra_fields():
+    configure_logging(level_name="info", log_format="text")
+    logger = get_logger("test_text_extra")
+    formatter = logger.handlers[0].formatter
+    record = logger.makeRecord(
+        name=logger.name,
+        level=logging.INFO,
+        fn="test.py",
+        lno=1,
+        msg="test message",
+        args=(),
+        exc_info=None,
+        extra={"profile": "my-profile", "user_id": "12345"},
+    )
+
+    formatted = formatter.format(record)
+    assert "test message" in formatted
+    assert "profile=my-profile" in formatted
+    assert "user_id=12345" in formatted
+
+
+def test_text_formatter_excludes_technical_metadata():
+    """Technical metadata from trace-level logging should not appear in text output."""
+    configure_logging(level_name="info", log_format="text")
+    logger = get_logger("test_text_filter")
+    formatter = logger.handlers[0].formatter
+    record = logger.makeRecord(
+        name=logger.name,
+        level=logging.INFO,
+        fn="test.py",
+        lno=1,
+        msg="command executed",
+        args=(),
+        exc_info=None,
+        extra={
+            "exit_code": 0,
+            "stdout_payload_size_bytes": 1500,
+            "stderr_payload_size_bytes": 0,
+            "stdout_payload_truncated": True,
+            "stderr_payload_truncated": False,
+            "stdout_detail_unavailable_reason": None,
+            "stdout": "full output here",
+            "stderr": "",
+        },
+    )
+
+    formatted = formatter.format(record)
+    # Useful fields should be present
+    assert "exit_code=0" in formatted
+    # Technical metadata should be excluded
+    assert "payload_size_bytes" not in formatted
+    assert "payload_truncated" not in formatted
+    assert "detail_unavailable_reason" not in formatted
+    assert "stdout=" not in formatted
+    assert "stderr=" not in formatted
+
+
+def test_text_formatter_includes_env_overridden_and_redaction_flags():
+    """env_overridden and redaction flags should appear in text output."""
+    configure_logging(level_name="info", log_format="text")
+    logger = get_logger("test_text_useful_flags")
+    formatter = logger.handlers[0].formatter
+    record = logger.makeRecord(
+        name=logger.name,
+        level=logging.INFO,
+        fn="test.py",
+        lno=1,
+        msg="subprocess trace",
+        args=(),
+        exc_info=None,
+        extra={
+            "env_overridden": True,
+            "stdout_redaction_applied": True,
+            "stderr_redaction_applied": False,
+        },
+    )
+
+    formatted = formatter.format(record)
+    assert "env_overridden=True" in formatted
+    assert "stdout_redaction_applied=True" in formatted
+    assert "stderr_redaction_applied=False" in formatted
+
+
+def test_text_formatter_excludes_event_field():
+    """event field should be excluded from text output."""
+    configure_logging(level_name="info", log_format="text")
+    logger = get_logger("test_text_event_filter")
+    formatter = logger.handlers[0].formatter
+    record = logger.makeRecord(
+        name=logger.name,
+        level=logging.INFO,
+        fn="test.py",
+        lno=1,
+        msg="login started",
+        args=(),
+        exc_info=None,
+        extra={
+            "event": "login_processing_started",
+            "profile": "my-profile",
+        },
+    )
+
+    formatted = formatter.format(record)
+    # event should be excluded (internal technical field)
+    assert "event=" not in formatted
+    # profile should still be present
+    assert "profile=my-profile" in formatted
+
+
 def test_sanitize_trace_payload_redacts_json_token_fields():
     payload = '{"access_token":"abc123","refresh_token":"def456"}'
 

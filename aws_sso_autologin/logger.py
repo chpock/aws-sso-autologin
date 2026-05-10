@@ -151,6 +151,63 @@ class TextFormatter(logging.Formatter):
     }
     RESET = "\033[0m"
 
+    # Colors for extra field formatting
+    KEY_COLOR = "\033[34m"  # Blue
+    SEPARATOR_COLOR = "\033[90m"  # Gray
+    VALUE_COLOR = "\033[0m"  # Default/reset
+
+    _BASE_FIELDS = {
+        "name",
+        "msg",
+        "args",
+        "levelname",
+        "levelno",
+        "pathname",
+        "filename",
+        "module",
+        "exc_info",
+        "exc_text",
+        "stack_info",
+        "lineno",
+        "funcName",
+        "created",
+        "msecs",
+        "relativeCreated",
+        "thread",
+        "threadName",
+        "processName",
+        "process",
+        "message",
+    }
+
+    # Technical metadata fields not useful for human-readable output
+    # These are trace-level implementation details
+    # (payload sizes, truncation flags, etc.)
+    _TECHNICAL_KEYS = {
+        "event",
+        "stdout",
+        "stderr",
+        "taskName",
+    }
+
+    def _is_technical_key(self, key: str) -> bool:
+        """Check if key is a technical metadata field.
+
+        Technical keys include:
+        - Known technical metadata fields
+        - Payload size/truncation metadata from sanitize_trace_payload()
+        """
+        if key in self._TECHNICAL_KEYS:
+            return True
+        # Pattern match technical suffixes from sanitize_trace_payload()
+        if key.endswith("_payload_size_bytes"):
+            return True
+        if key.endswith("_payload_truncated"):
+            return True
+        if key.endswith("_detail_unavailable_reason"):
+            return True
+        return False
+
     def __init__(self, use_color: bool) -> None:
         super().__init__()
         self._use_color = use_color
@@ -160,7 +217,26 @@ class TextFormatter(logging.Formatter):
         if self._use_color and level in self.COLORS:
             level = f"{self.COLORS[level]}{level}{self.RESET}"
         timestamp = self.formatTime(record, "%Y-%m-%d %H:%M:%S")
-        return f"{timestamp} {level} [{record.name}] {record.getMessage()}"
+        parts = [f"{timestamp} {level} [{record.name}] {record.getMessage()}"]
+
+        # Add extra fields (key=value pairs), skipping technical metadata
+        for key, value in record.__dict__.items():
+            if key in self._BASE_FIELDS or key.startswith("_"):
+                continue
+            if self._is_technical_key(key):
+                continue
+            if self._use_color:
+                # Format with colors: blue key, gray separator, default value
+                formatted_pair = (
+                    f"{self.KEY_COLOR}{key}{self.RESET}"
+                    f"{self.SEPARATOR_COLOR}={self.RESET}"
+                    f"{value}"
+                )
+                parts.append(formatted_pair)
+            else:
+                parts.append(f"{key}={value}")
+
+        return " ".join(parts)
 
 
 def parse_log_level(level_name: str) -> int:

@@ -220,7 +220,7 @@ def _run_aws_command(
             )
 
             if is_expected_failure:
-                logger.debug(
+                logger.info(
                     "profile is not an SSO profile (no sso_start_url configured)",
                     extra={
                         "event": "sso_config_check_negative",
@@ -683,7 +683,7 @@ def _get_profile_info(profile_name: str) -> ProfileInfo | None:
         if exit_code != 0 or not stdout.strip():
             # No SSO start URL found - this profile is not configured for SSO
             # This is expected behavior for non-SSO profiles, not an error
-            logger.debug(
+            logger.info(
                 "profile skipped - not an SSO profile",
                 extra={
                     "event": "profile_discovery_skip",

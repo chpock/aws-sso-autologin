@@ -348,7 +348,8 @@ class ConcreteTrayHost(TrayHost):
             "org.freedesktop.DBus.ListNames",
         ]
         started_at = time.time()
-        logger.debug(
+        logger.log(
+            5,
             "tray host ping started",
             extra={"event": "tray_host_ping_started", "host": self._info.name},
         )
@@ -381,7 +382,8 @@ class ConcreteTrayHost(TrayHost):
                     )
                 self._consecutive_failures = 0
                 self._is_lost = False
-                logger.debug(
+                logger.log(
+                    5,
                     "tray host ping completed",
                     extra={
                         "event": "tray_host_ping_completed",

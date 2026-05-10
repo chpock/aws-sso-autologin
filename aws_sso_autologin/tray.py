@@ -679,7 +679,8 @@ class StatusTray:
                 pixmap = QPixmap(icon_path)
                 if not pixmap.isNull():
                     icon.addPixmap(pixmap)
-                    logger.debug(
+                    logger.log(
+                        5,
                         "Loaded icon",
                         extra={
                             "icon_file": filename,
