@@ -11,6 +11,11 @@ import os
 from dataclasses import dataclass
 from enum import Enum, auto
 
+from aws_sso_autologin.logger import get_logger
+
+
+logger = get_logger(__name__)
+
 
 class ExecutionMode(Enum):
     """Application execution modes."""
@@ -42,10 +47,19 @@ def get_automation_context() -> AutomationContext:
     if os.environ.get("PYTEST_CURRENT_TEST"):
         automation_signals.append("PYTEST_CURRENT_TEST")
     
-    return AutomationContext(
+    context = AutomationContext(
         is_automation=len(automation_signals) > 0,
         detected_signals=automation_signals,
     )
+    logger.debug(
+        "automation context detected",
+        extra={
+            "event": "automation_context_detected",
+            "is_automation": context.is_automation,
+            "signals": context.detected_signals,
+        },
+    )
+    return context
 
 
 def get_execution_mode(cli_check_only: bool = False) -> ExecutionMode:
@@ -65,12 +79,33 @@ def get_execution_mode(cli_check_only: bool = False) -> ExecutionMode:
     """
     # Level 1: CLI flag has highest precedence
     if cli_check_only:
+        logger.info(
+            "execution mode selected",
+            extra={
+                "event": "mode_selected",
+                "mode": "check_only",
+                "reason": "cli_flag",
+            },
+        )
         return ExecutionMode.CHECK_ONLY
     
     # Level 2: Automation context defaults to safe mode
     ctx = get_automation_context()
     if ctx.is_automation:
+        logger.info(
+            "execution mode selected",
+            extra={
+                "event": "mode_selected",
+                "mode": "check_only",
+                "reason": "automation_context",
+                "signals": ctx.detected_signals,
+            },
+        )
         return ExecutionMode.CHECK_ONLY
     
     # Level 3: Interactive use - normal operation
+    logger.info(
+        "execution mode selected",
+        extra={"event": "mode_selected", "mode": "normal", "reason": "interactive"},
+    )
     return ExecutionMode.NORMAL

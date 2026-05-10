@@ -21,7 +21,7 @@ from aws_sso_autologin.models import (
     SessionFailureType,
     SessionInfo,
 )
-from aws_sso_autologin.logger import get_logger
+from aws_sso_autologin.logger import get_logger, sanitize_trace_payload
 
 logger = get_logger(__name__)
 
@@ -117,11 +117,17 @@ class LoginOperator:
         """
         with self._lock:
             if self._is_profile_locked(profile_name):
-                logger.warning(f"Profile {profile_name} is locked, skipping login")
+                logger.warning(
+                    "login enqueue skipped for locked profile",
+                    extra={"event": "login_enqueue_skipped", "profile": profile_name, "reason": "profile_locked"},
+                )
                 return LoginStatus.LOCKED
             if profile_name not in self._queue:
                 self._queue.append(profile_name)
-                logger.info(f"Enqueued profile {profile_name} for login")
+                logger.info(
+                    "login enqueue accepted",
+                    extra={"event": "login_enqueued", "profile": profile_name, "queue_length": len(self._queue)},
+                )
             if not self._processing:
                 self._start_worker()
             return LoginStatus.PENDING
@@ -162,8 +168,32 @@ class LoginOperator:
             )
 
         try:
-            logger.info(f"Starting login for profile {profile_name}")
+            logger.info(
+                "login processing started",
+                extra={"event": "login_processing_started", "profile": profile_name},
+            )
             stdout, stderr, returncode = self._cli_executor.execute_login(profile_name)
+            stdout_payload = sanitize_trace_payload(stdout)
+            stderr_payload = sanitize_trace_payload(stderr)
+            logger.log(
+                5,
+                "login execution trace",
+                extra={
+                    "event": "login_processing_trace",
+                    "profile": profile_name,
+                    "exit_code": returncode,
+                    "stdout": stdout_payload["value"],
+                    "stderr": stderr_payload["value"],
+                    "stdout_payload_size_bytes": stdout_payload["payload_size_bytes"],
+                    "stderr_payload_size_bytes": stderr_payload["payload_size_bytes"],
+                    "stdout_payload_truncated": stdout_payload["payload_truncated"],
+                    "stderr_payload_truncated": stderr_payload["payload_truncated"],
+                    "stdout_redaction_applied": stdout_payload["redaction_applied"],
+                    "stderr_redaction_applied": stderr_payload["redaction_applied"],
+                    "stdout_detail_unavailable_reason": stdout_payload.get("detail_unavailable_reason"),
+                    "stderr_detail_unavailable_reason": stderr_payload.get("detail_unavailable_reason"),
+                },
+            )
 
             status = self._classify_output(stdout, stderr, returncode)
 
@@ -267,14 +297,14 @@ class SessionOperator:
         if not info.is_active:
             if info.failure_type == SessionFailureType.EXPIRED_OR_INVALID:
                 logger.info(
-                    "Session for %s classified as expired/invalid, triggering login",
+                    "session %s classified as expired/invalid; triggering login",
                     profile.name,
                 )
                 self._login_operator.enqueue(profile.name)
                 return RenewalStatus.TRIGGERED
 
             logger.warning(
-                "Session for %s inactive without explicit expired/invalid classification; "
+                "session %s inactive without explicit expired/invalid classification; "
                 "skipping auto-login (failure_type=%s)",
                 profile.name,
                 info.failure_type.value,
@@ -282,12 +312,15 @@ class SessionOperator:
             return RenewalStatus.UNKNOWN
 
         if info.seconds_remaining is None:
-            logger.warning(f"Cannot determine remaining time for {profile.name}")
+            logger.warning(
+                "session remaining time unavailable",
+                extra={"event": "session_remaining_unavailable", "profile": profile.name},
+            )
             return RenewalStatus.UNKNOWN
 
         if info.seconds_remaining <= RENEWAL_THRESHOLD_SECONDS:
             logger.debug(
-                "Session for %s below threshold (%ss <= %ss); waiting for explicit "
+                "session %s below threshold (%ss <= %ss); waiting for explicit "
                 "expired/invalid classifier hit before auto-login",
                 profile.name,
                 info.seconds_remaining,
@@ -371,14 +404,14 @@ class HealthOperator:
         self._last_heartbeat = time.time()
         self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self._monitor_thread.start()
-        logger.info("HealthOperator started")
+        logger.info("health monitor started")
 
     def stop(self) -> None:
         """Stop the health monitoring loop."""
         self._running = False
         if self._monitor_thread:
             self._monitor_thread.join(timeout=5)
-        logger.info("HealthOperator stopped")
+        logger.info("health monitor stopped")
 
     def _monitor_loop(self) -> None:
         """Main monitoring loop running every 30 seconds."""
@@ -401,7 +434,10 @@ class HealthOperator:
                 self._emit_status(profile.name, status, info)
 
             except Exception as e:
-                logger.error(f"Error checking profile {profile.name}: {e}")
+                logger.error(
+                    "profile health check failed",
+                    extra={"event": "profile_health_check_failed", "profile": profile.name, "error": str(e)},
+                )
                 fallback_info = SessionInfo(
                     profile_name=profile.name,
                     is_active=False,
@@ -463,7 +499,10 @@ class HealthOperator:
                 status = self._session_operator.check_and_renew(profile)
                 results[profile.name] = status
             except Exception as e:
-                logger.error(f"Error in forced check for {profile.name}: {e}")
+                logger.error(
+                    "forced profile check failed",
+                    extra={"event": "profile_force_check_failed", "profile": profile.name, "error": str(e)},
+                )
                 results[profile.name] = RenewalStatus.UNKNOWN
         self._update_heartbeat()
         return results

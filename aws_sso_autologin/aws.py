@@ -12,13 +12,14 @@ import shlex
 import stat
 import subprocess
 import tempfile
+import time
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import List, NamedTuple, Optional, Tuple
 
 from aws_sso_autologin.constants import SESSION_DURATION_SECONDS
 from aws_sso_autologin.errors import AWSCliError
-from aws_sso_autologin.logger import get_logger
+from aws_sso_autologin.logger import get_logger, sanitize_trace_payload
 
 logger = get_logger(__name__)
 
@@ -29,6 +30,16 @@ def _run_subprocess_with_escalation(
     env: Optional[dict[str, str]] = None,
 ) -> Tuple[int, str, str]:
     """Run command with terminate->grace->kill timeout escalation."""
+    started_at = time.time()
+    logger.debug(
+        "subprocess started",
+        extra={"event": "subprocess_started", "command": command, "timeout_s": timeout},
+    )
+    logger.log(
+        5,
+        "subprocess input trace",
+        extra={"event": "subprocess_trace", "command": command, "timeout_s": timeout, "env_overridden": env is not None},
+    )
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
@@ -39,17 +50,60 @@ def _run_subprocess_with_escalation(
 
     try:
         stdout, stderr = process.communicate(timeout=timeout)
+        stdout_payload = sanitize_trace_payload(stdout)
+        stderr_payload = sanitize_trace_payload(stderr)
+        logger.log(
+            5,
+            "subprocess output trace",
+            extra={
+                "event": "subprocess_trace",
+                "command": command,
+                "exit_code": process.returncode,
+                "stdout": stdout_payload["value"],
+                "stderr": stderr_payload["value"],
+                "stdout_payload_size_bytes": stdout_payload["payload_size_bytes"],
+                "stderr_payload_size_bytes": stderr_payload["payload_size_bytes"],
+                "stdout_payload_truncated": stdout_payload["payload_truncated"],
+                "stderr_payload_truncated": stderr_payload["payload_truncated"],
+                "stdout_redaction_applied": stdout_payload["redaction_applied"],
+                "stderr_redaction_applied": stderr_payload["redaction_applied"],
+                "stdout_detail_unavailable_reason": stdout_payload.get("detail_unavailable_reason"),
+                "stderr_detail_unavailable_reason": stderr_payload.get("detail_unavailable_reason"),
+            },
+        )
+        logger.debug(
+            "subprocess completed",
+            extra={
+                "event": "subprocess_completed",
+                "status": "completed",
+                "command": command,
+                "exit_code": process.returncode,
+                "duration_ms": int((time.time() - started_at) * 1000),
+            },
+        )
         return process.returncode, stdout or "", stderr or ""
     except subprocess.TimeoutExpired:
+        logger.warning(
+            "subprocess timeout reached",
+            extra={"event": "subprocess_timeout", "command": command, "timeout_s": timeout},
+        )
         process.terminate()
         try:
             stdout, stderr = process.communicate(timeout=3)
+            logger.error(
+                "subprocess terminated after timeout",
+                extra={"event": "subprocess_failed", "status": "failed", "reason": "timeout_terminated", "command": command},
+            )
             raise AWSCliError(
                 f"AWS command timed out after {timeout}s and was terminated"
             )
         except subprocess.TimeoutExpired:
             process.kill()
             process.communicate()
+            logger.error(
+                "subprocess force killed after timeout",
+                extra={"event": "subprocess_failed", "status": "failed", "reason": "timeout_force_kill", "command": command},
+            )
             raise AWSCliError(
                 f"AWS command timed out after {timeout}s and required force kill"
             )
@@ -113,7 +167,10 @@ def _run_aws_command(
     full_command = ["aws"] + command
     
     try:
-        logger.debug(f"Running AWS command: {' '.join(full_command)}")
+        logger.debug(
+            "aws command started",
+            extra={"event": "aws_command_started", "command": full_command, "timeout_s": timeout},
+        )
         
         returncode, stdout, stderr = _run_subprocess_with_escalation(
             full_command,
@@ -121,17 +178,32 @@ def _run_aws_command(
         )
         
         if returncode != 0:
-            logger.debug(f"AWS command failed with code {returncode}: {stderr[:200]}")
+            logger.info(
+                "aws command finished with non-zero exit",
+                extra={
+                    "event": "aws_command_failed",
+                    "status": "failed",
+                    "command": full_command,
+                    "exit_code": returncode,
+                    "stdout_preview": (stdout or "")[:200],
+                    "stderr_preview": (stderr or "")[:200],
+                },
+            )
+        else:
+            logger.debug(
+                "aws command completed",
+                extra={"event": "aws_command_completed", "status": "succeeded", "exit_code": returncode},
+            )
         
         return returncode, stdout, stderr
 
     except FileNotFoundError:
         error_msg = "AWS CLI not found. Please ensure 'aws' is installed and in PATH"
-        logger.error(error_msg)
+        logger.error(error_msg, extra={"event": "aws_command_failed", "status": "failed", "reason": "aws_cli_not_found"})
         raise AWSCliError(error_msg)
     except Exception as e:
         error_msg = f"Failed to run AWS command: {e}"
-        logger.error(error_msg)
+        logger.error(error_msg, extra={"event": "aws_command_failed", "status": "failed", "error": str(e)})
         raise AWSCliError(error_msg)
 
 
@@ -163,7 +235,10 @@ def check_session_valid(profile: str) -> Tuple[bool, Optional[datetime], Optiona
                 data = json.loads(stdout)
                 account = data.get("Account", "unknown")
                 arn = data.get("Arn", "unknown")
-                logger.debug(f"Session valid for profile '{profile}': account={account}")
+                logger.debug(
+                    "session valid",
+                    extra={"event": "session_check_completed", "profile": profile, "status": "valid", "account": account, "arn": arn},
+                )
                 
                 # Estimate expiration as now + session duration
                 # Note: Actual expiration may vary based on SSO configuration
@@ -172,13 +247,19 @@ def check_session_valid(profile: str) -> Tuple[bool, Optional[datetime], Optiona
                 return True, expires_at, None
             except json.JSONDecodeError:
                 # Response wasn't valid JSON, but command succeeded
-                logger.debug(f"Session valid for profile '{profile}' (non-JSON response)")
+                logger.debug(
+                    "session valid with non-json response",
+                    extra={"event": "session_check_completed", "profile": profile, "status": "valid", "response_format": "non_json"},
+                )
                 expires_at = datetime.now() + timedelta(seconds=SESSION_DURATION_SECONDS)
                 return True, expires_at, None
         else:
             # Session is invalid or expired
             error_msg = stderr.strip() if stderr else "Unknown error"
-            logger.debug(f"Session invalid for profile '{profile}': {error_msg[:200]}")
+            logger.debug(
+                "session invalid",
+                extra={"event": "session_check_completed", "profile": profile, "status": "invalid", "error_preview": error_msg[:200]},
+            )
             
             # Check if this is an SSO expiration error
             if _is_sso_expired_error(error_msg):
@@ -187,10 +268,16 @@ def check_session_valid(profile: str) -> Tuple[bool, Optional[datetime], Optiona
                 return False, None, error_msg
                 
     except AWSCliError as e:
-        logger.error(f"Failed to check session for profile '{profile}': {e}")
+        logger.error(
+            "session check failed",
+            extra={"event": "session_check_completed", "profile": profile, "status": "failed", "error": str(e)},
+        )
         return False, None, str(e)
     except Exception as e:
-        logger.error(f"Unexpected error checking session for '{profile}': {e}")
+        logger.error(
+            "session check failed with unexpected error",
+            extra={"event": "session_check_completed", "profile": profile, "status": "failed", "error": str(e)},
+        )
         return False, None, str(e)
 
 
@@ -255,7 +342,10 @@ def run_sso_login(
             env["BROWSER"] = wrapper_path
             logger.debug("Using browser wrapper for profile '%s': %s", profile, wrapper_path)
 
-        logger.info(f"Starting SSO login for profile '{profile}'")
+        logger.info(
+            "sso login started",
+            extra={"event": "sso_login_started", "profile": profile, "timeout_s": timeout},
+        )
 
         full_command = ["aws"] + command
         returncode, stdout, stderr = _run_subprocess_with_escalation(
@@ -265,7 +355,10 @@ def run_sso_login(
         )
 
         if returncode == 0:
-            logger.info(f"SSO login successful for profile '{profile}'")
+            logger.info(
+                "sso login completed",
+                extra={"event": "sso_login_completed", "profile": profile, "status": "succeeded"},
+            )
             return True, ""
 
         error_msg = stderr.strip() if stderr else "Unknown error"
@@ -276,7 +369,10 @@ def run_sso_login(
                 f"{error_msg}. {metadata}"
             )
 
-        logger.error(f"SSO login failed for profile '{profile}': {error_msg[:200]}")
+        logger.error(
+            "sso login completed",
+            extra={"event": "sso_login_completed", "profile": profile, "status": "failed", "error_preview": error_msg[:200]},
+        )
         return False, error_msg
 
     except AWSCliError as error:
@@ -383,12 +479,18 @@ def discover_profiles() -> List[ProfileInfo]:
         )
         
         if exit_code != 0:
-            logger.error(f"Failed to list profiles: {stderr[:200]}")
+            logger.error(
+                "profile discovery failed listing profiles",
+                extra={"event": "profile_discovery_failed", "status": "failed", "step": "list_profiles", "error_preview": stderr[:200]},
+            )
             return profiles
         
         # Parse profile names (one per line)
         profile_names = [line.strip() for line in stdout.split("\n") if line.strip()]
-        logger.debug(f"Found {len(profile_names)} AWS profiles")
+        logger.debug(
+            "profile names discovered",
+            extra={"event": "profile_discovery_names_found", "count": len(profile_names)},
+        )
         
         # Check each profile for SSO configuration
         for name in profile_names:
@@ -397,17 +499,29 @@ def discover_profiles() -> List[ProfileInfo]:
                 if profile_info:
                     profiles.append(profile_info)
             except Exception as e:
-                logger.debug(f"Failed to get info for profile '{name}': {e}")
+                logger.debug(
+                    "profile discovery skipped profile due to error",
+                    extra={"event": "profile_discovery_profile_skipped", "profile": name, "error": str(e)},
+                )
                 continue
         
-        logger.info(f"Discovered {len(profiles)} SSO profiles")
+        logger.info(
+            "profile discovery completed",
+            extra={"event": "profile_discovery_completed", "status": "succeeded", "sso_profile_count": len(profiles)},
+        )
         return profiles
         
     except AWSCliError as e:
-        logger.error(f"Failed to discover profiles: {e}")
+        logger.error(
+            "profile discovery failed",
+            extra={"event": "profile_discovery_failed", "status": "failed", "error": str(e)},
+        )
         return profiles
     except Exception as e:
-        logger.error(f"Unexpected error discovering profiles: {e}")
+        logger.error(
+            "profile discovery failed with unexpected error",
+            extra={"event": "profile_discovery_failed", "status": "failed", "error": str(e)},
+        )
         return profiles
 
 
@@ -448,7 +562,10 @@ def _get_profile_info(profile_name: str) -> Optional[ProfileInfo]:
         )
         
     except Exception as e:
-        logger.debug(f"Error checking profile '{profile_name}': {e}")
+        logger.debug(
+            "profile sso info read failed",
+            extra={"event": "profile_info_read_failed", "profile": profile_name, "error": str(e)},
+        )
         return None
 
 
@@ -518,6 +635,9 @@ def get_profile_sso_config(profile_name: str) -> dict:
             config["role_name"] = stdout.strip()
             
     except Exception as e:
-        logger.debug(f"Error getting SSO config for '{profile_name}': {e}")
+        logger.debug(
+            "profile sso config read failed",
+            extra={"event": "profile_sso_config_failed", "profile": profile_name, "error": str(e)},
+        )
     
     return config

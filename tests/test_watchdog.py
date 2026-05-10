@@ -99,5 +99,8 @@ class TestWatchdogIntegration:
                     time.sleep(0.05)
                     watchdog.check()
             
-            # Check log output contains expected event
-            assert "event=agent_watchdog_timeout" in caplog.text
+            timeout_records = [
+                r for r in caplog.records if getattr(r, "event", "") == "watchdog_timeout"
+            ]
+            assert timeout_records
+            assert timeout_records[-1].__dict__.get("exit_code") == 124

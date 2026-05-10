@@ -215,3 +215,18 @@ def test_timeout_escalation_terminates_then_kills():
     process.terminate.assert_called_once()
     process.kill.assert_called_once()
     assert "force kill" in str(error.value)
+
+
+def test_run_aws_command_logs_failed_event_on_non_zero_exit():
+    from aws_sso_autologin import aws
+
+    with patch("aws_sso_autologin.aws._run_subprocess_with_escalation") as mock_run:
+        mock_run.return_value = (1, "", "boom")
+        with patch.object(aws.logger, "info") as mock_info:
+            aws._run_aws_command(["sts", "get-caller-identity"], timeout=5)
+
+    extra = mock_info.call_args.kwargs["extra"]
+    assert extra["event"] == "aws_command_failed"
+    assert extra["status"] == "failed"
+    assert extra["command"] == ["aws", "sts", "get-caller-identity"]
+    assert extra["exit_code"] == 1

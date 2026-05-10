@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, Optional
 
-from aws_sso_autologin.logger import get_logger
+from aws_sso_autologin.logger import get_logger, sanitize_trace_payload
 
 logger = get_logger(__name__)
 
@@ -155,7 +155,7 @@ def detect_tray_host() -> TrayHostInfo:
     desktop_session = os.environ.get("DESKTOP_SESSION", "")
     xdg_current_desktop = os.environ.get("XDG_CURRENT_DESKTOP", "")
     logger.debug(
-        "Tray host env probe",
+        "tray host env probe",
         extra={
             "event": "tray_host_env_probe",
             "desktop_session": desktop_session,
@@ -175,7 +175,10 @@ def detect_tray_host() -> TrayHostInfo:
     # Check for StatusNotifier support (modern Linux desktops)
     if host_type is None:
         # No recognized desktop environment
-        logger.debug("No recognized desktop environment detected")
+        logger.debug(
+            "tray host detection returned unknown",
+            extra={"event": "tray_host_detected", "host_type": TrayHostType.UNKNOWN.value},
+        )
         return TrayHostInfo(
             host_type=TrayHostType.UNKNOWN,
             name="Unknown Desktop Environment",
@@ -218,7 +221,16 @@ def detect_tray_host() -> TrayHostInfo:
         supports_xembed=supports_xembed,
     )
     
-    logger.debug(f"Detected tray host: {info.name} (StatusNotifier: {supports_status_notifier})")
+    logger.debug(
+        "tray host detected",
+        extra={
+            "event": "tray_host_detected",
+            "host_name": info.name,
+            "host_type": info.host_type.value,
+            "supports_status_notifier": supports_status_notifier,
+            "supports_xembed": supports_xembed,
+        },
+    )
     return info
 
 
@@ -238,9 +250,12 @@ def check_tray_host_available() -> bool:
     # 2. It supports at least one tray protocol (StatusNotifier or XEmbed)
     if info.host_type == TrayHostType.UNKNOWN:
         logger.warning(
-            "No compatible tray host detected",
+            "tray host unavailable: unknown desktop environment",
             extra={
                 "event": "tray_host_unavailable_unknown",
+                "normalized_event": "tray_host_probe_completed",
+                "status": "failed",
+                "reason": "unknown_environment",
                 "desktop_session": os.environ.get("DESKTOP_SESSION", ""),
                 "xdg_current_desktop": os.environ.get("XDG_CURRENT_DESKTOP", ""),
                 "wayland_display": os.environ.get("WAYLAND_DISPLAY", ""),
@@ -254,9 +269,12 @@ def check_tray_host_available() -> bool:
     
     if not info.supports_status_notifier and not info.supports_xembed:
         logger.warning(
-            f"Detected desktop {info.name} does not support required tray protocols",
+            "tray host unavailable: required tray protocols unsupported",
             extra={
                 "event": "tray_host_unavailable_protocol_mismatch",
+                "normalized_event": "tray_host_probe_completed",
+                "status": "failed",
+                "reason": "protocol_mismatch",
                 "detected_host": info.name,
                 "host_type": info.host_type.value,
                 "supports_status_notifier": info.supports_status_notifier,
@@ -265,7 +283,15 @@ def check_tray_host_available() -> bool:
         )
         return False
     
-    logger.debug(f"Compatible tray host available: {info.name}")
+    logger.debug(
+        "tray host preflight compatible",
+        extra={
+            "event": "tray_host_preflight_completed",
+            "status": "passed",
+            "host_name": info.name,
+            "host_type": info.host_type.value,
+        },
+    )
     return True
 
 
@@ -317,6 +343,20 @@ class ConcreteTrayHost(TrayHost):
             "/org/freedesktop/DBus",
             "org.freedesktop.DBus.ListNames",
         ]
+        started_at = time.time()
+        logger.debug(
+            "tray host ping started",
+            extra={"event": "tray_host_ping_started", "host": self._info.name},
+        )
+        logger.log(
+            5,
+            "tray host ping command",
+            extra={
+                "event": "tray_host_ping_trace",
+                "host": self._info.name,
+                "command": command,
+            },
+        )
 
         try:
             result = self._ping_runner(
@@ -328,7 +368,7 @@ class ConcreteTrayHost(TrayHost):
             if result.returncode == 0:
                 if self._consecutive_failures > 0:
                     logger.info(
-                        "Tray host heartbeat recovered",
+                        "tray host heartbeat recovered",
                         extra={
                             "event": "tray_host_heartbeat_recovered",
                             "host": self._info.name,
@@ -337,8 +377,39 @@ class ConcreteTrayHost(TrayHost):
                     )
                 self._consecutive_failures = 0
                 self._is_lost = False
+                logger.debug(
+                    "tray host ping completed",
+                    extra={
+                        "event": "tray_host_ping_completed",
+                        "host": self._info.name,
+                        "status": "passed",
+                        "duration_ms": int((time.time() - started_at) * 1000),
+                        "exit_code": result.returncode,
+                    },
+                )
                 return True
 
+            stdout_payload = sanitize_trace_payload(result.stdout)
+            stderr_payload = sanitize_trace_payload(result.stderr)
+            logger.log(
+                5,
+                "tray host ping failure detail",
+                extra={
+                    "event": "tray_host_ping_trace",
+                    "host": self._info.name,
+                    "stdout": stdout_payload["value"],
+                    "stderr": stderr_payload["value"],
+                    "stdout_payload_size_bytes": stdout_payload["payload_size_bytes"],
+                    "stderr_payload_size_bytes": stderr_payload["payload_size_bytes"],
+                    "stdout_payload_truncated": stdout_payload["payload_truncated"],
+                    "stderr_payload_truncated": stderr_payload["payload_truncated"],
+                    "stdout_redaction_applied": stdout_payload["redaction_applied"],
+                    "stderr_redaction_applied": stderr_payload["redaction_applied"],
+                    "stdout_detail_unavailable_reason": stdout_payload.get("detail_unavailable_reason"),
+                    "stderr_detail_unavailable_reason": stderr_payload.get("detail_unavailable_reason"),
+                    "exit_code": result.returncode,
+                },
+            )
             self._record_failure(result.stderr or "dbus probe failed")
             return False
         except Exception as exc:  # pragma: no cover - defensive
@@ -348,7 +419,7 @@ class ConcreteTrayHost(TrayHost):
     def _record_failure(self, reason: str) -> None:
         self._consecutive_failures += 1
         logger.warning(
-            "Tray host ping failed (%d consecutive): %s",
+            "tray host ping failed (%d consecutive): %s",
             self._consecutive_failures,
             reason,
             extra={
@@ -364,7 +435,7 @@ class ConcreteTrayHost(TrayHost):
 
         if not self._is_lost:
             logger.error(
-                "Tray host lost",
+                "tray host marked lost after ping failures",
                 extra={
                     "event": "tray_host_lost",
                     "host": self._info.name,
