@@ -518,6 +518,7 @@ class AutologinApp:
                 self._tray_host_timer.start()
             if self._tray is not None:
                 self._tray.set_syncing(True)
+            self._awaiting_initial_status = True
             return
 
         self._health_operator.stop()

@@ -782,11 +782,9 @@ class StatusTray:
     def _first_row_label(self) -> str:
         if self._global_error_summary:
             return "Show startup/sync error"
-        if self._is_syncing:
-            return "Synchronizing..."
         if self._monitoring_enabled:
-            return "Disable auto-login"
-        return "Enable auto-login"
+            return "Pause Monitoring"
+        return "Resume Monitoring"
 
     def _on_first_row_triggered(self) -> None:
         if self._global_error_summary:
@@ -797,10 +795,8 @@ class StatusTray:
             )
             return
 
-        if self._is_syncing:
-            return
-
         self.set_monitoring_enabled(not self._monitoring_enabled)
+        self._menu.hide()
 
     def _rebuild_menu(self) -> None:
         self._menu.clear()
@@ -810,9 +806,13 @@ class StatusTray:
             first_action.setIcon(
                 QApplication.style().standardIcon(QStyle.SP_MessageBoxCritical)
             )
+        elif self._monitoring_enabled:
+            first_action.setIcon(
+                QApplication.style().standardIcon(QStyle.SP_MediaPause)
+            )
+        else:
+            first_action.setIcon(QApplication.style().standardIcon(QStyle.SP_MediaPlay))
         first_action.triggered.connect(self._on_first_row_triggered)
-        if self._is_syncing and not self._global_error_summary:
-            first_action.setEnabled(False)
         self._menu.addAction(first_action)
         self._menu.addSeparator()
 

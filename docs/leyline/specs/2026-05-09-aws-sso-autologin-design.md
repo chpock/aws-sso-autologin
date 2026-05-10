@@ -54,7 +54,7 @@ Users with multiple AWS SSO profiles lose active sessions during normal work and
   - when tray-host is lost at runtime, pause monitoring after 30 seconds, emit structured log entry `tray_host_lost`, continue background checks only if explicitly configured via `tray_loss_behavior: continue` (default: `pause`).
 - On startup, auto-login monitoring is enabled by default unless explicit safe-mode override is set for rollback.
 - Right-click tray menu must include:
-  - first item: toggle auto-login (`Enable auto-login` or `Disable auto-login`),
+  - first item: toggle monitoring (`Pause Monitoring` or `Resume Monitoring`),
   - separator,
   - one entry per tracked SSO profile with `Profile: <name> - <status>`,
   - separator,
@@ -80,7 +80,7 @@ Users with multiple AWS SSO profiles lose active sessions during normal work and
 - First-row control conflict resolution is deterministic:
   - precedence order: tray-host preflight failure (startup exit) > rollback artifact verification failure > classifier artifact parity mismatch > global AWS CLI/config failures > safe-mode paused state > user toggle state,
   - while any blocking global error class is active, first row remains global error action and does not switch to enable/disable toggle,
-  - blocked transition copy is mandatory and actionable, for example: `Enable auto-login blocked: rollback artifact verification failed.`
+  - blocked transition copy is mandatory and actionable, for example: `Resume Monitoring blocked: rollback artifact verification failed.`
 
 ## Approaches considered
 ### Approach A - Single-process Qt app (recommended)
@@ -310,7 +310,7 @@ Implement Approach A. It matches current requirements with the best complexity-t
 
 ## Rollback and safe-mode operations
 - Safe-mode entry paths:
-  - User kill-switch: first menu row `Disable auto-login` stops all background activity immediately.
+  - User kill-switch: first menu row `Pause Monitoring` stops all background activity immediately.
   - Startup override: `AWS_SSO_AUTOLOGIN_SAFE_MODE=1` starts app with monitoring disabled for that run.
   - Config override: `safe_mode: true` in `config.yaml` starts monitoring disabled until explicitly re-enabled by user action or config edit.
 - Release rollback checklist for maintainers:

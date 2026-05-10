@@ -132,7 +132,7 @@ def test_status_tray_first_row_toggle_contract(qapp):
     menu = tray.tray_icon.contextMenu()
     assert menu is not None
     actions = menu.actions()
-    assert actions[0].text() == "Disable auto-login"
+    assert actions[0].text() == "Pause Monitoring"
     assert "Quit" in [a.text() for a in actions if not a.isSeparator()]
     tray.close()
 
@@ -142,7 +142,7 @@ def test_status_tray_paused_switches_first_row(qapp):
     enabled_icon_key = tray.tray_icon.icon().cacheKey()
     tray.set_monitoring_enabled(False)
     actions = tray.tray_icon.contextMenu().actions()
-    assert actions[0].text() == "Enable auto-login"
+    assert actions[0].text() == "Resume Monitoring"
     assert tray.current_icon_state == "disabled-paused"
     assert tray.tray_icon.icon().cacheKey() != enabled_icon_key
     tray.close()
@@ -546,7 +546,7 @@ def test_status_tray_no_profiles_single_separator_before_quit(qapp):
 
     # Verify structure: first row, separator, Quit
     non_separator_actions = [a for a in actions if not a.isSeparator()]
-    assert non_separator_actions[0].text() == "Disable auto-login"
+    assert non_separator_actions[0].text() == "Pause Monitoring"
     assert non_separator_actions[-1].text() == "Quit"
 
     tray.close()

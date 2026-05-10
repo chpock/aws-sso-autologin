@@ -80,7 +80,7 @@ python -m aws_sso_autologin
 Once running, the application appears in your system tray:
 
 - **Right-click**: Open context menu with global control row, profile rows, and quit action
-- **First row**: `Disable auto-login` / `Enable auto-login`, or `Show startup/sync error` for blocking global failures
+- **First row**: `Pause Monitoring` / `Resume Monitoring`, or `Show startup/sync error` for blocking global failures
 - **Tooltip**: Shows `Profiles OK: <count>/<total>` and current icon semantic state
 
 ### Menu Options
