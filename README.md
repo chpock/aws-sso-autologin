@@ -23,7 +23,7 @@ A Linux system tray application that monitors AWS SSO sessions and automatically
 
 - Python 3.11 or higher
 - Linux desktop environment with system tray support (StatusNotifier or XEmbed)
-- AWS CLI v2 installed and configured
+- AWS CLI v2.9.0 or higher installed and configured
 - PySide6 6.6.0 or higher
 
 ## Installation
@@ -187,15 +187,25 @@ Tray host abstraction and environment detection:
 
 ### AWS Configuration
 
-Ensure your AWS config file (`~/.aws/config`) contains SSO profiles:
+Ensure your AWS config file (`~/.aws/config`) contains SSO profiles in the
+modern `sso-session` format:
 
 ```ini
 [profile my-sso-profile]
-sso_start_url = https://my-org.awsapps.com/start
-sso_region = us-east-1
+sso_session = my-sso
 sso_account_id = 123456789012
 sso_role_name = AdministratorAccess
+
+[sso-session my-sso]
+sso_start_url = https://my-org.awsapps.com/start
+sso_region = us-east-1
+sso_registration_scopes = sso:account:access
 ```
+
+This project detects SSO profiles by checking `sso_session` on each profile and
+does not support legacy inline SSO profile format.
+
+The modern `sso-session` profile format was added to AWS CLI in v2.9.0.
 
 ### Application Configuration
 

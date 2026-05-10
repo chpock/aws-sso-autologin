@@ -507,11 +507,7 @@ class AutologinApp:
             # Convert ProfileInfo to ProfileConfig
             self._profiles = []
             for info in profile_infos:
-                config = ProfileConfig(
-                    name=info.name,
-                    sso_start_url=info.sso_start_url,
-                    sso_region=info.sso_region,
-                )
+                config = ProfileConfig(name=info.name)
                 self._profiles.append(config)
 
             logger.info(f"Loaded {len(self._profiles)} SSO profiles")
@@ -599,7 +595,7 @@ class AutologinApp:
                 summary=NO_PROFILES_SUMMARY,
                 details=(
                     "No SSO profiles found in AWS config. Add a profile with"
-                    " sso_start_url to enable auto-login."
+                    " sso_session to enable auto-login."
                 ),
                 source="startup-no-profiles",
                 is_config_error=True,

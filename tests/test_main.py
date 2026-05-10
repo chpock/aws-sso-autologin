@@ -611,8 +611,6 @@ def test_load_profiles_sets_syncing_until_first_status_update():
 
     profile_info = Mock()
     profile_info.name = "example"
-    profile_info.sso_start_url = "https://start"
-    profile_info.sso_region = "us-east-1"
 
     with patch(
         "aws_sso_autologin.__main__.discover_profiles", return_value=[profile_info]

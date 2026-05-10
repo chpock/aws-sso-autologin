@@ -44,13 +44,9 @@ def test_profile_info_namedtuple():
     profile = ProfileInfo(
         name="test-profile",
         is_sso=True,
-        sso_start_url="https://example.com",
-        sso_region="us-east-1",
     )
     assert profile.name == "test-profile"
     assert profile.is_sso is True
-    assert profile.sso_start_url == "https://example.com"
-    assert profile.sso_region == "us-east-1"
 
 
 def test_session_status_enum():
@@ -153,8 +149,6 @@ def test_profile_info_defaults():
     """Test ProfileInfo has sensible defaults."""
     profile = ProfileInfo(name="test")
     assert profile.is_sso is False
-    assert profile.sso_start_url is None
-    assert profile.sso_region is None
 
 
 def test_is_sso_profile_exists():
@@ -169,6 +163,54 @@ def test_get_profile_sso_config_exists():
     from aws_sso_autologin.aws import get_profile_sso_config
 
     assert callable(get_profile_sso_config)
+
+
+def test_is_sso_profile_checks_sso_session_only():
+    from aws_sso_autologin.aws import is_sso_profile
+
+    with patch("aws_sso_autologin.aws._run_aws_command") as mock_run:
+        mock_run.return_value = (0, "my-sso\n", "")
+
+        assert is_sso_profile("test-profile") is True
+        mock_run.assert_called_once_with(
+            ["configure", "get", "sso_session", "--profile", "test-profile"],
+            timeout=10,
+            operation_context="check_sso_config",
+        )
+
+
+def test_get_profile_sso_config_reads_sso_values():
+    from aws_sso_autologin.aws import get_profile_sso_config
+
+    def side_effect(command, timeout=10, capture_output=True, operation_context=None):
+        if command == ["configure", "get", "sso_session", "--profile", "test-profile"]:
+            return (0, "my-sso\n", "")
+        if command == [
+            "configure",
+            "get",
+            "sso_account_id",
+            "--profile",
+            "test-profile",
+        ]:
+            return (0, "123456789012\n", "")
+        if command == [
+            "configure",
+            "get",
+            "sso_role_name",
+            "--profile",
+            "test-profile",
+        ]:
+            return (0, "ReadOnly\n", "")
+        return (1, "", "")
+
+    with patch("aws_sso_autologin.aws._run_aws_command", side_effect=side_effect):
+        config = get_profile_sso_config("test-profile")
+
+    assert config == {
+        "session": "my-sso",
+        "account_id": "123456789012",
+        "role_name": "ReadOnly",
+    }
 
 
 def test_run_sso_login_browser_override_uses_secure_wrapper():

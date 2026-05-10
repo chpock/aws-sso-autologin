@@ -29,8 +29,6 @@ class ProfileConfig:
 
     name: str
     region: str | None = None
-    sso_start_url: str | None = None
-    sso_region: str | None = None
     sso_account_id: str | None = None
     sso_role_name: str | None = None
 
