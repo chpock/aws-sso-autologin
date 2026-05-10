@@ -665,6 +665,8 @@ class StatusTray:
         )
 
     def _update_icon_state(self) -> None:
+        if self.tray_icon is None:
+            return
         icon_state = self._compute_icon_state()
         self.current_icon_state = icon_state
         self.tray_icon.setIcon(self._state_icons[icon_state])
@@ -951,6 +953,8 @@ class StatusTray:
         return style.standardIcon(QStyle.SP_DialogApplyButton)
 
     def _update_tooltip(self) -> None:
+        if self.tray_icon is None:
+            return
         total = len(self._profiles)
         tooltip = (
             "AWS SSO Autologin\n"

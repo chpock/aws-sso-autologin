@@ -456,6 +456,8 @@ class AutologinApp:
             renewal_status: Renewal action outcome from SessionOperator.
             session_info: Classified session check details for taxonomy mapping.
         """
+        if self._is_shutting_down:
+            return
         if self._tray:
             status = self._status_from_session(
                 profile_name=profile_name,

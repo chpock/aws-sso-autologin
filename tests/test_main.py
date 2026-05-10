@@ -384,6 +384,29 @@ def test_indeterminate_failure_does_not_clear_error_state():
     assert status.state == ProfileState.ERROR
 
 
+def test_on_status_change_skipped_during_shutdown():
+    """_on_status_change must not call tray when shutdown is in progress."""
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.models import (
+        RenewalStatus,
+        SessionFailureType,
+        SessionInfo,
+    )
+
+    app = AutologinApp()
+    app._tray = Mock()
+    app._is_shutting_down = True
+
+    info = SessionInfo(
+        profile_name="test-profile",
+        is_active=True,
+        failure_type=SessionFailureType.NONE,
+    )
+    app._on_status_change("test-profile", RenewalStatus.NOT_NEEDED, info)
+
+    app._tray.update_profile.assert_not_called()
+
+
 def test_autologin_app_load_profiles_empty():
     from aws_sso_autologin.__main__ import AutologinApp
 

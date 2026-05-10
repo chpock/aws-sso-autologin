@@ -837,6 +837,23 @@ tests/test_aws.py::test_timeout_force_kill_logs_stdout_stderr PASSED     [100%]
 
 ============================== 2 passed in 0.02s ===============================
 
+
+## Systematic-debugging record - shutdown race condition on tray_icon
+
+### Record - AttributeError on tray_icon.setIcon during shutdown
+- Root cause (one sentence, plain English): During graceful shutdown, `tray.close()` nulls `tray_icon`, but a queued Qt signal from the health operator's worker thread can still deliver `status_update` to `_on_status_change`, which calls `update_profile()` → `_update_icon_state()` → `self.tray_icon.setIcon()` on an already-None object.
+- Falsifying tests:
+  - `test_update_profile_after_close_does_not_crash`: FAILED with `AttributeError: 'NoneType' object has no attribute 'setIcon'`
+  - `test_update_tooltip_after_close_does_not_crash`: FAILED with `AttributeError: 'NoneType' object has no attribute 'setToolTip'`
+  - `test_on_status_change_skipped_during_shutdown`: FAILED — `update_profile` called when `_is_shutting_down=True`
+- Hypothesis: If we add `self.tray_icon is None` guards in `_update_icon_state()` and `_update_tooltip()`, and an `_is_shutting_down` guard in `_on_status_change()`, the race-condition crash will be eliminated.
+- Fix:
+  1. `tray.py:667` — `_update_icon_state()`: added `if self.tray_icon is None: return`
+  2. `tray.py:956` — `_update_tooltip()`: added `if self.tray_icon is None: return`
+  3. `__main__.py:459` — `_on_status_change()`: added `if self._is_shutting_down: return` before the `if self._tray:` guard
+- Regression coverage: `make test` (266 passed), `make run-agent` (exit code 0).
+
+
 $ make test
 241 passed in 4.52s
 ```

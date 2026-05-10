@@ -127,6 +127,33 @@ def test_status_tray_init(qapp):
     tray.close()
 
 
+def test_update_profile_after_close_does_not_crash(qapp):
+    """update_profile must be safe to call after close() — no AttributeError on None."""
+    tray = StatusTray()
+    status = ProfileStatus(profile_name="dev", state=ProfileState.OK)
+
+    # Verify initial state: tray_icon exists and update_profile works
+    assert tray.tray_icon is not None
+    tray.update_profile(status)
+
+    # Close — tray_icon becomes None
+    tray.close()
+    assert tray.tray_icon is None
+
+    # Must not crash
+    tray.update_profile(status)
+
+
+def test_update_tooltip_after_close_does_not_crash(qapp):
+    """_update_tooltip must be safe to call after close()."""
+    tray = StatusTray()
+    tray.close()
+    assert tray.tray_icon is None
+
+    # Must not crash
+    tray._update_tooltip()
+
+
 def test_status_tray_first_row_toggle_contract(qapp):
     tray = StatusTray()
     menu = tray.tray_icon.contextMenu()
