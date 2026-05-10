@@ -117,7 +117,7 @@ class LoginOperator:
         """
         with self._lock:
             if self._is_profile_locked(profile_name):
-                logger.warning(
+                logger.info(
                     "login enqueue skipped for locked profile",
                     extra={
                         "event": "login_enqueue_skipped",

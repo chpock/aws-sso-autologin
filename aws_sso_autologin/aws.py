@@ -175,6 +175,7 @@ def _run_aws_command(
     timeout: int = 30,
     capture_output: bool = True,
     operation_context: str | None = None,
+    env: dict[str, str] | None = None,
 ) -> tuple[int, str, str]:
     """Run an AWS CLI command with proper error handling.
 
@@ -184,6 +185,7 @@ def _run_aws_command(
         capture_output: Whether to capture stdout/stderr
         operation_context: Description of what this command is doing
             (e.g., "check_sso_config", "validate_session", etc.)
+        env: Optional environment variables to override for the subprocess
 
     Returns:
         Tuple of (exit_code, stdout, stderr)
@@ -201,12 +203,14 @@ def _run_aws_command(
                 "command": full_command,
                 "timeout_s": timeout,
                 "operation_context": operation_context,
+                "env_overridden": env is not None,
             },
         )
 
         returncode, stdout, stderr = _run_subprocess_with_escalation(
             full_command,
             timeout=timeout,
+            env=env,
         )
 
         if returncode != 0:
@@ -451,10 +455,10 @@ def run_sso_login(
             },
         )
 
-        full_command = ["aws"] + command
-        returncode, stdout, stderr = _run_subprocess_with_escalation(
-            full_command,
+        returncode, stdout, stderr = _run_aws_command(
+            command,
             timeout=timeout,
+            operation_context="sso_login",
             env=env,
         )
 

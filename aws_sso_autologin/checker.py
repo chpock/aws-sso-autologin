@@ -2,7 +2,7 @@
 
 import time
 
-from aws_sso_autologin.aws import _run_subprocess_with_escalation
+from aws_sso_autologin.aws import _run_aws_command
 from aws_sso_autologin.logger import get_logger, sanitize_trace_payload
 from aws_sso_autologin.models import ProfileConfig, SessionFailureType, SessionInfo
 
@@ -35,15 +35,10 @@ class SessionChecker:
         )
         try:
             # Try to get caller identity to check if session is active
-            returncode, stdout, stderr = _run_subprocess_with_escalation(
-                [
-                    self._cli_path,
-                    "sts",
-                    "get-caller-identity",
-                    "--profile",
-                    profile.name,
-                ],
+            returncode, stdout, stderr = _run_aws_command(
+                ["sts", "get-caller-identity", "--profile", profile.name],
                 timeout=10,
+                operation_context="validate_session",
             )
 
             is_active = returncode == 0
@@ -177,16 +172,10 @@ class SessionChecker:
                 },
             )
             # Try to get credentials expiration
-            _run_subprocess_with_escalation(
-                [
-                    self._cli_path,
-                    "configure",
-                    "get",
-                    "sso_role_name",
-                    "--profile",
-                    profile.name,
-                ],
+            _run_aws_command(
+                ["configure", "get", "sso_role_name", "--profile", profile.name],
                 timeout=10,
+                operation_context="check_sso_config",
             )
             # For now, return a default value
             # In production, we'd parse the actual expiration
