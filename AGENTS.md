@@ -5,7 +5,18 @@
 - `make prepare` - create `.venv` (if missing), upgrade pip, install runtime dependencies only.
 - `make test` - run full test suite via `.venv/bin/pytest`.
 - `make test-verbose` - same with `-v`.
-- `make run` - run app as `python -m aws_sso_autologin` from `.venv`.
+
+### For AI agents (automated/testing contexts)
+- `make run-agent` - run app in agent-safe mode with preflight checks only (exits after checks complete).
+  - Sets 60-second watchdog timeout (`AWS_SSO_AUTOLOGIN_TIMEOUT=60`).
+  - Runs with `--check-only` flag (no daemon loop, no indefinite blocking).
+  - Returns exit code: 0 (success), 1 (preflight failure), 124 (watchdog timeout).
+  - **AI agents MUST use this target - never use `make run`.**
+
+### For interactive/daemon use (DO NOT USE in automation)
+- `make run` - run app as daemon with automatic mode detection (interactive use only).
+  - **WARNING**: This starts a long-running daemon process that blocks indefinitely.
+  - **AI agents and automation scripts MUST NOT use this target.**
 
 ## Focused verification
 - Single test file: `.venv/bin/pytest tests/test_service.py -q`
@@ -75,7 +86,7 @@
 
 ## Minimum verification before claiming done
 - Run targeted tests for changed modules plus `make test` before completion claims.
-- For tray-host/startup issues, include `make run` output with structured `event=` logs in your notes; those logs are part of the diagnostic contract.
+- For tray-host/startup issues, include `make run-agent` output with structured `event=` logs in your notes; those logs are part of the diagnostic contract.
 
 ## Logging requirements
 - All application actions must be thoroughly logged using appropriate log levels based on message importance (from `trace` to `error`).
