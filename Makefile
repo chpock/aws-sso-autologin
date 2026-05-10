@@ -31,7 +31,7 @@ prepare: venv
 prepare-dev: prepare
 	@"$(PIP)" install -e ".[dev]"
 
-test: venv
+test: lint venv
 	@"$(PYTEST)"
 
 test-verbose: venv
