@@ -1,5 +1,6 @@
 """System tray UI components."""
 
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -639,16 +640,84 @@ class StatusTray:
         self.tray_icon.setIcon(self._state_icons[icon_state])
 
     def _build_state_icons(self) -> dict[str, QIcon]:
-        palette = {
-            "enabled-ok": QColor("#2e7d32"),
-            "enabled-syncing": QColor("#1565c0"),
-            "enabled-warning": QColor("#ef6c00"),
-            "enabled-error": QColor("#c62828"),
-            "disabled-paused": QColor("#616161"),
+        """Build state icons from PNG files with multiple sizes for HiDPI support."""
+        state_to_file = {
+            "enabled-ok": "icon_normal.png",
+            "enabled-syncing": "icon_working.png",
+            "enabled-warning": "icon_warning.png",
+            "enabled-error": "icon_error.png",
+            "disabled-paused": "icon_paused.png",
         }
-        return {state: self._make_state_icon(color) for state, color in palette.items()}
 
-    def _make_state_icon(self, color: QColor) -> QIcon:
+        icons_dir = self._get_icons_dir()
+        state_icons = {}
+
+        for state, filename in state_to_file.items():
+            icon = self._load_multi_resolution_icon(icons_dir, filename)
+            state_icons[state] = icon
+
+        return state_icons
+
+    def _get_icons_dir(self) -> str:
+        """Get the directory containing icon files."""
+        # Icons are stored in aws_sso_autologin/icons/ relative to this file
+        module_dir = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(module_dir, "icons")
+
+    def _load_multi_resolution_icon(self, icons_dir: str, filename: str) -> QIcon:
+        """Load an icon with multiple resolutions for HiDPI support.
+
+        Loads icon files from size-specific subdirectories (32x32, 64x64, etc.)
+        and combines them into a single QIcon for automatic resolution selection.
+        """
+        icon = QIcon()
+        sizes = ["32x32", "64x64", "128x128", "256x256"]
+
+        for size in sizes:
+            icon_path = os.path.join(icons_dir, size, filename)
+            if os.path.exists(icon_path):
+                pixmap = QPixmap(icon_path)
+                if not pixmap.isNull():
+                    icon.addPixmap(pixmap)
+                    logger.debug(
+                        "Loaded icon",
+                        extra={
+                            "icon_file": filename,
+                            "icon_size": size,
+                            "icon_path": icon_path,
+                        },
+                    )
+                else:
+                    logger.warning(
+                        "Failed to load icon pixmap",
+                        extra={
+                            "icon_file": filename,
+                            "icon_size": size,
+                            "icon_path": icon_path,
+                        },
+                    )
+            else:
+                logger.debug(
+                    "Icon file not found",
+                    extra={
+                        "icon_file": filename,
+                        "icon_size": size,
+                        "icon_path": icon_path,
+                    },
+                )
+
+        # Fallback: if no icons loaded, create a simple colored circle
+        if icon.isNull():
+            logger.warning(
+                "No icon files loaded, using fallback",
+                extra={"icon_file": filename},
+            )
+            icon = self._make_fallback_icon()
+
+        return icon
+
+    def _make_fallback_icon(self) -> QIcon:
+        """Create a fallback icon when PNG files are not available."""
         size = 16
         pixmap = QPixmap(size, size)
         pixmap.fill(Qt.transparent)
@@ -656,7 +725,7 @@ class StatusTray:
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(QPen(QColor("#1f1f1f"), 1))
-        painter.setBrush(color)
+        painter.setBrush(QColor("#616161"))
         painter.drawEllipse(1, 1, size - 2, size - 2)
         painter.end()
 
