@@ -446,6 +446,27 @@ def run_sso_login(
                 "Using browser wrapper for profile '%s': %s", profile, wrapper_path
             )
 
+        # Log browser choice explicitly
+        if browser:
+            command_parts = _normalize_browser_command(browser)
+            command_str = " ".join(shlex.quote(part) for part in command_parts)
+            logger.info(
+                "Will use custom browser for login",
+                extra={
+                    "event": "login_browser_custom",
+                    "profile": profile,
+                    "browser_command": command_str,
+                },
+            )
+        else:
+            logger.info(
+                "Will use default browser for login",
+                extra={
+                    "event": "login_browser_default",
+                    "profile": profile,
+                },
+            )
+
         logger.info(
             "sso login started",
             extra={
