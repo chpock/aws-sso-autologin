@@ -1,7 +1,8 @@
 # AGENTS.md
 
 ## Fast start (use these, do not guess)
-- `make prepare` - create `.venv` (if missing), upgrade pip, install `requirements.txt`.
+- `make prepare-dev` - create `.venv` (if missing), upgrade pip, install dependencies and dev dependencies (pytest, etc.). Use this for development.
+- `make prepare` - create `.venv` (if missing), upgrade pip, install runtime dependencies only.
 - `make test` - run full test suite via `.venv/bin/pytest`.
 - `make test-verbose` - same with `-v`.
 - `make run` - run app as `python -m aws_sso_autologin` from `.venv`.

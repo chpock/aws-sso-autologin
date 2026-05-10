@@ -1,4 +1,4 @@
-.PHONY: help venv prepare test test-verbose run run-check run-agent lint clean
+.PHONY: help venv prepare prepare-dev test test-verbose run run-check run-agent lint clean
 
 VENV := .venv
 PYTHON := $(VENV)/bin/python
@@ -11,6 +11,7 @@ help:
 	@printf "Available targets:\n"
 	@printf "  make venv          Create local virtual environment\n"
 	@printf "  make prepare       Create venv and install dependencies\n"
+	@printf "  make prepare-dev   Create venv and install dev dependencies (includes pytest)\n"
 	@printf "  make test          Run test suite\n"
 	@printf "  make test-verbose  Run test suite with verbose output\n"
 	@printf "  make run           Run application module (LOG_LEVEL=debug by default)\n"
@@ -26,6 +27,9 @@ venv:
 prepare: venv
 	@"$(PIP)" install --upgrade pip
 	@"$(PIP)" install -r requirements.txt
+
+prepare-dev: prepare
+	@"$(PIP)" install -e ".[dev]"
 
 test: venv
 	@"$(PYTEST)"
