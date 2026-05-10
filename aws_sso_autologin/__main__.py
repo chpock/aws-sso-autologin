@@ -377,15 +377,6 @@ class AutologinApp:
         session_info: SessionInfo,
     ) -> ProfileStatus:
         if session_info.is_active:
-            if session_info.seconds_remaining is None:
-                return ProfileStatus(
-                    profile_name=profile_name,
-                    state=ProfileState.WARNING,
-                    short_reason="Session remaining time unavailable",
-                    diagnostics_summary="Session status warning",
-                    diagnostics_details=self._build_diagnostics_details(session_info),
-                )
-
             return ProfileStatus(
                 profile_name=profile_name,
                 state=ProfileState.OK,
@@ -408,9 +399,9 @@ class AutologinApp:
         if session_info.failure_type == SessionFailureType.TIMEOUT:
             return ProfileStatus(
                 profile_name=profile_name,
-                state=ProfileState.ERROR,
+                state=ProfileState.WARNING,
                 short_reason="Command timed out",
-                diagnostics_summary="Command timed out",
+                diagnostics_summary="Connectivity warning",
                 diagnostics_details=self._build_diagnostics_details(session_info),
             )
 
@@ -464,11 +455,30 @@ class AutologinApp:
             if (
                 current is not None
                 and current.state is ProfileState.ERROR
-                and session_info.failure_type == SessionFailureType.OTHER
+                and not session_info.is_active
             ):
                 status = current
             self._profile_status[profile_name] = status
             self._tray.update_profile(status)
+            app_state = self._aggregate_app_state()
+            logger.info(
+                "app state aggregated event=app_state_aggregated "
+                "monitoring_enabled=%s profile_error_count=%s profile_sync_count=%s "
+                "app_state=%s icon_state=%s",
+                self._monitoring_enabled,
+                sum(
+                    1
+                    for profile_status in self._profile_status.values()
+                    if profile_status.state is ProfileState.ERROR
+                ),
+                sum(
+                    1
+                    for profile_status in self._profile_status.values()
+                    if profile_status.state is ProfileState.SYNCING
+                ),
+                app_state,
+                self._tray.current_icon_state,
+            )
             if self._awaiting_initial_status:
                 self._tray.set_syncing(False)
                 self._awaiting_initial_status = False
@@ -535,6 +545,11 @@ class AutologinApp:
             logger.info("ErrorDetailsDialog closed")
         except Exception as e:
             logger.error("Failed to show diagnostics dialog: %s", e, exc_info=True)
+            if self._tray is not None:
+                self._tray.set_global_error(
+                    "Could not open details. Try again.",
+                    "Could not open details. Try again.",
+                )
 
     def _load_profiles(self) -> bool:
         """Load SSO profiles from AWS config.

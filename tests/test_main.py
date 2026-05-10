@@ -263,8 +263,29 @@ def test_on_status_change_timeout_sets_warning_state():
     app._on_status_change("test-profile", RenewalStatus.UNKNOWN, info)
 
     status = app._tray.update_profile.call_args.args[0]
-    assert status.state == ProfileState.ERROR
+    assert status.state == ProfileState.WARNING
     assert status.short_reason == "Command timed out"
+
+
+def test_on_status_change_active_without_remaining_time_stays_ok():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.models import RenewalStatus, SessionFailureType, SessionInfo
+    from aws_sso_autologin.tray import ProfileState
+
+    app = AutologinApp()
+    app._tray = Mock()
+
+    info = SessionInfo(
+        profile_name="test-profile",
+        is_active=True,
+        seconds_remaining=None,
+        failure_type=SessionFailureType.NONE,
+    )
+
+    app._on_status_change("test-profile", RenewalStatus.NOT_NEEDED, info)
+
+    status = app._tray.update_profile.call_args.args[0]
+    assert status.state == ProfileState.OK
 
 
 def test_on_status_change_permission_denied_sets_error_state():
@@ -685,3 +706,20 @@ def test_on_show_diagnostics_displays_error_dialog():
         mock_dialog_class.from_text.assert_called_once()
         assert app._details_dialog is mock_dialog
         mock_dialog.exec.assert_called_once()
+
+
+def test_on_show_diagnostics_sets_recoverable_global_error_on_failure():
+    from aws_sso_autologin.__main__ import AutologinApp
+
+    app = AutologinApp([])
+    app._tray = Mock()
+
+    with patch("aws_sso_autologin.__main__.ErrorDetailsDialog") as mock_dialog_class:
+        mock_dialog_class.from_text.side_effect = RuntimeError("dialog failed")
+
+        app._on_show_diagnostics("Test error summary", "Test error details")
+
+    app._tray.set_global_error.assert_called_once_with(
+        "Could not open details. Try again.",
+        "Could not open details. Try again.",
+    )
