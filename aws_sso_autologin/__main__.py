@@ -97,7 +97,6 @@ def _build_cli_app(state: dict[str, Any]) -> typer.Typer:
         check_only: bool = typer.Option(
             False, "--check-only", help="Run preflight only"
         ),
-        profiles: str = typer.Option("", "--profiles", help="Comma-separated profiles"),
     ) -> None:
         if log_level and log_level not in VALID_LOG_LEVELS:
             raise typer.BadParameter(
@@ -113,7 +112,6 @@ def _build_cli_app(state: dict[str, Any]) -> typer.Typer:
                 "safe_mode": safe_mode,
                 "tray_loss_behavior": tray_loss_behavior or None,
                 "check_only": check_only,
-                "profiles": profiles or None,
             }
         )
 
