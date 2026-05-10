@@ -38,9 +38,6 @@
 - Tray/UI tests instantiate real `QApplication` (`tests/test_tray.py`); if PySide6 is missing, collection fails. Run `make prepare` first.
 - No CI/workflow config is present in repo; local `make test` is the authoritative verification path.
 
-## Current tooling reality
-- `make lint` is a placeholder message only (no linter configured).
-- `.gitignore` still contains legacy Go-oriented patterns; do not infer Go tooling from it.
 
 ## Git workflow convention
 - Use Conventional Commits for all commit subjects: `<type>(<scope>): <summary>`.
