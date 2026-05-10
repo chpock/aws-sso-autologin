@@ -314,7 +314,8 @@ def get_logger(name: str, level: int | None = None) -> logging.Logger:
         ):
             formatter = StructuredFormatter()
         else:
-            formatter = TextFormatter(use_color=False)
+            use_color = bool(getattr(sys.stdout, "isatty", lambda: False)())
+            formatter = TextFormatter(use_color=use_color)
         handler.setFormatter(formatter)
 
         logger.addHandler(handler)

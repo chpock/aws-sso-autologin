@@ -256,6 +256,24 @@ def test_sanitize_trace_payload_redacts_presigned_url_signature():
     assert sanitized["redaction_applied"] is True
 
 
+def test_get_logger_detects_color_when_stdout_is_tty(monkeypatch):
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+
+    logger = get_logger("test_color_tty")
+
+    formatter = logger.handlers[0].formatter
+    assert formatter._use_color is True
+
+
+def test_get_logger_detects_no_color_when_stdout_not_tty(monkeypatch):
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
+
+    logger = get_logger("test_color_notty")
+
+    formatter = logger.handlers[0].formatter
+    assert formatter._use_color is False
+
+
 def test_install_qt_message_handler_returns_previous_handler(monkeypatch):
     previous_handler = object()
 
