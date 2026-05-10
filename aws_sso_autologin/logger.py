@@ -188,6 +188,7 @@ class TextFormatter(logging.Formatter):
         "stdout",
         "stderr",
         "taskName",
+        "operation_context",
     }
 
     def _is_technical_key(self, key: str) -> bool:
