@@ -196,6 +196,5 @@ event=startup_preflight_passed
 (exit code 0)
 ```
 
-## Deferred findings
-
-None remaining. All Critical and Important findings from both review rounds have been resolved.
+Code review complete - round 2 - 2026-05-10
+Design review complete - round 2 - 2026-05-10
