@@ -709,6 +709,8 @@ def test_on_show_diagnostics_displays_error_dialog():
 
 
 def test_on_show_diagnostics_sets_recoverable_global_error_on_failure():
+    from PySide6.QtWidgets import QMessageBox
+
     from aws_sso_autologin.__main__ import AutologinApp
 
     app = AutologinApp([])
@@ -716,10 +718,15 @@ def test_on_show_diagnostics_sets_recoverable_global_error_on_failure():
 
     with patch("aws_sso_autologin.__main__.ErrorDetailsDialog") as mock_dialog_class:
         mock_dialog_class.from_text.side_effect = RuntimeError("dialog failed")
+        with patch("aws_sso_autologin.__main__.QMessageBox") as mock_qmb:
+            mock_box = MagicMock()
+            mock_box.exec.return_value = QMessageBox.StandardButton.Close
+            mock_qmb.return_value = mock_box
 
-        app._on_show_diagnostics("Test error summary", "Test error details")
+            app._on_show_diagnostics("Test error summary", "Test error details")
 
-    app._tray.set_global_error.assert_called_once_with(
-        "Could not open details. Try again.",
-        "Could not open details. Try again.",
+    mock_qmb.assert_called_once()
+    called_box = mock_qmb.return_value
+    assert called_box.setText.call_args.args[0] == (
+        "Could not open details. Try again."
     )
