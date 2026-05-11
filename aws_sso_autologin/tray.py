@@ -577,14 +577,14 @@ class StatusTray:
         self._parent = parent
         self._profiles: dict[str, ProfileStatus] = {}
         self._monitoring_enabled = True
-        self._is_syncing = False
+        self._initialized = False
         self._global_error_summary: str | None = None
         self._global_error_details: str = ""
         self._global_error_is_config: bool = False
         self._ok_count = 0
         self._status_window: StatusWindowProxy | None = None
         self._details_dialog: ErrorDetailsDialog | None = None
-        self.current_icon_state = "enabled-ok"
+        self.current_icon_state = "normal"
 
         self._on_toggle_monitoring = on_toggle_monitoring
         self._on_quit = on_quit
@@ -615,9 +615,9 @@ class StatusTray:
         self._update_icon_state()
         self._throttled_tooltip_update()
 
-    def set_syncing(self, syncing: bool) -> None:
-        """Set global syncing flag affecting tray icon state."""
-        self._is_syncing = syncing
+    def set_initialized(self, initialized: bool) -> None:
+        """Mark the tray as initialized after the first status cycle completes."""
+        self._initialized = initialized
         self._update_icon_state()
         self._throttled_tooltip_update()
 
@@ -674,11 +674,11 @@ class StatusTray:
     def _build_state_icons(self) -> dict[str, QIcon]:
         """Build state icons from PNG files with multiple sizes for HiDPI support."""
         state_to_file = {
-            "enabled-ok": "icon_normal.png",
-            "enabled-syncing": "icon_working.png",
-            "enabled-warning": "icon_warning.png",
-            "enabled-error": "icon_error.png",
-            "disabled-paused": "icon_paused.png",
+            "working": "icon_working.png",
+            "paused": "icon_paused.png",
+            "error": "icon_error.png",
+            "warning": "icon_warning.png",
+            "normal": "icon_normal.png",
         }
 
         icons_dir = self._get_icons_dir()
@@ -765,20 +765,33 @@ class StatusTray:
         return QIcon(pixmap)
 
     def _compute_icon_state(self) -> str:
-        if not self._monitoring_enabled:
-            return "disabled-paused"
-
+        # Global errors (startup failures, tray-host loss) — highest priority
         if self._global_error_summary:
-            return "enabled-error"
+            return "error"
 
+        # Profile-level errors
         states = {self._effective_state(status) for status in self._profiles.values()}
         if ProfileState.ERROR in states:
-            return "enabled-error"
+            return "error"
+
+        # Not yet initialized — startup state
+        if not self._initialized:
+            return "normal"
+
+        # No profiles after initialization — no suitable profiles
+        if not self._profiles:
+            return "error"
+
+        # Profile-level warnings
         if ProfileState.WARNING in states:
-            return "enabled-warning"
-        if self._is_syncing or ProfileState.SYNCING in states:
-            return "enabled-syncing"
-        return "enabled-ok"
+            return "warning"
+
+        # Monitoring paused (no errors, no warnings)
+        if not self._monitoring_enabled:
+            return "paused"
+
+        # All good
+        return "working"
 
     def _first_row_label(self) -> str:
         if self._global_error_summary:
@@ -964,13 +977,15 @@ class StatusTray:
         self.tray_icon.setToolTip(tooltip)
 
     def _state_text(self) -> str:
-        if not self._monitoring_enabled:
-            return "paused"
-        if self.current_icon_state in ("enabled-syncing", "enabled-warning"):
-            return "working/syncing"
-        if self.current_icon_state == "enabled-error":
+        if self.current_icon_state == "normal":
+            return "starting"
+        if self.current_icon_state == "error":
             return "error"
-        return "working/ok"
+        if self.current_icon_state == "warning":
+            return "warning"
+        if self.current_icon_state == "paused":
+            return "paused"
+        return "working"
 
     def _throttled_tooltip_update(self) -> None:
         if not self._tooltip_timer.isActive():

@@ -17,6 +17,7 @@ UX spec approved - round 10 - 2026-05-09
 UX spec approved - round 11 - 2026-05-09
 UX spec approved - round 12 - 2026-05-10
 UX spec approved - round 13 - 2026-05-10
+UX spec approved - round 14 - 2026-05-11
 Design-interrogation pass complete - round 1 - 2026-05-09
 
 ## Design-interrogation notes
@@ -120,7 +121,7 @@ Failure path: if login fails, profile row shows Error/Warning and opens detailed
 ### Flow 3 - Pause, safe mode, and resume
 1. User selects `Pause Monitoring` in first row, or app starts with safe mode active.
 2. App stops (or keeps stopped) all background activity: checks, watchers, and refresh loops.
-3. Icon switches to `disabled-paused` variant.
+3. Icon switches to `paused` variant.
 4. Profile rows display OK paused messaging.
 5. First row shows `Resume Monitoring` while paused, unless a global error is active.
 6. User selects `Resume Monitoring` to resume monitoring.
@@ -165,7 +166,7 @@ Preflight tray-host failure is a startup halt path; in that path tray surfaces a
 | Surface | Empty | Loading | Error | Success | Permission-denied | Offline |
 |---------|-------|---------|-------|---------|-------------------|---------|
 | CLI command surface | Help/version/check-only/log-level/log-format not requested | N/A - command parsing is immediate | Invalid argument/value (including unsupported `--log-level` or `--log-format`) prints actionable parse error and non-zero exit | `--help`, `--version`/`-V`, successful `--check-only`, valid `--log-level`/`--log-format`, and deterministic config+CLI precedence produce expected behavior and `0` semantics | N/A - represented via command failure text | N/A - represented via preflight/command failure text |
-| System tray icon | N/A - icon appears after app init | `enabled-syncing` while startup discovery/check is running | `enabled-error` for global failure or profile-level blocking issue | `enabled-ok` when monitoring is active and healthy; `disabled-paused` when paused; `enabled-warning` for non-blocking warning states | N/A - permission outcomes shown as command errors | N/A - offline represented as command failures |
+| System tray icon | N/A - icon appears after app init | `normal` while startup discovery/check is running | `error` for global failure or profile-level blocking issue | `working` when monitoring is active and healthy; `paused` when paused; `warning` for non-blocking warning states | N/A - permission outcomes shown as command errors | N/A - offline represented as command failures |
 | Global control row | N/A - row always exists | Toggle row disabled during transient startup/sync operations (label reflects monitoring state) | Error action replacing toggle when a global blocking condition is active (unavailable/broken AWS CLI, unsupported AWS CLI version, invalid config, config trust-policy violation). Clicking it closes the menu and opens a diagnostics dialog | `Pause Monitoring` when monitoring enabled, `Resume Monitoring` when monitoring disabled (including intentional safe-mode pause). Clicking it closes the menu and toggles monitoring | N/A - permission issues surfaced via error action | N/A - offline surfaced via error action |
 | Profile status row | N/A - row exists only for discovered SSO profile | `Profile: <name> - Syncing...` while check or login result is pending | `Profile: <name> - Error: <short reason>` and row is clickable; timeout uses explicit `Command timed out` reason | `Profile: <name> - OK, last refresh: <duration>` or `Profile: <name> - OK (paused)` | `Profile: <name> - Error: Access denied` with clickable details | `Profile: <name> - Warning: Connectivity issue` with clickable details; unknown-classifier failures do not imply auto-login |
 | Profile overflow submenu | N/A - not shown when tracked profiles <= 40 | N/A - container does not represent command state | N/A - error states remain on individual profile rows | Visible and selectable only when tracked profiles > 40; labels are deterministic range buckets | N/A - permission outcomes stay on profile rows | N/A - offline outcomes stay on profile rows |
@@ -175,8 +176,8 @@ Preflight tray-host failure is a startup halt path; in that path tray surfaces a
 Signal-triggered shutdown follows the same success semantics as Quit row and adds explicit `system_signal_received` / `shutdown_action` logs for observability.
 
 ## Status precedence
-- Global status precedence is fixed to: `global error > profile error/warning > syncing > ok`.
-- When monitoring is disabled, `disabled-paused` always takes precedence for icon and control semantics.
+- Global status precedence is fixed to: `global error > profile error > warning > paused > working`.
+- The `normal` icon is shown only at startup before the first status cycle completes.
 - These precedence rules remain unchanged when paused state comes from safe mode.
 
 ## Interaction timing expectations

@@ -493,7 +493,7 @@ class AutologinApp:
                 self._tray.current_icon_state,
             )
             if self._awaiting_initial_status:
-                self._tray.set_syncing(False)
+                self._tray.set_initialized(True)
                 self._awaiting_initial_status = False
             logger.debug(
                 "AutologinApp: Status updated for %s: renewal=%s failure_type=%s",
@@ -503,13 +503,18 @@ class AutologinApp:
             )
 
     def _aggregate_app_state(self) -> str:
-        if not self._monitoring_enabled:
-            return "paused"
         if any(
             status.state is ProfileState.ERROR
             for status in self._profile_status.values()
         ):
             return "error"
+        if any(
+            status.state is ProfileState.WARNING
+            for status in self._profile_status.values()
+        ):
+            return "warning"
+        if not self._monitoring_enabled:
+            return "paused"
         return "working"
 
     def _on_toggle_monitoring(self, enabled: bool) -> None:
@@ -522,16 +527,12 @@ class AutologinApp:
             self._health_operator.start()
             if self._tray_host_timer is not None:
                 self._tray_host_timer.start()
-            if self._tray is not None:
-                self._tray.set_syncing(True)
             self._awaiting_initial_status = True
             return
 
         self._health_operator.stop()
         if self._tray_host_timer is not None:
             self._tray_host_timer.stop()
-        if self._tray is not None:
-            self._tray.set_syncing(False)
 
     def _on_show_diagnostics(
         self, summary: str, details: str, is_config_error: bool = False
@@ -648,7 +649,6 @@ class AutologinApp:
             # Initialize tray with profiles
             if self._tray:
                 self._awaiting_initial_status = True
-                self._tray.set_syncing(True)
                 for config in self._profiles:
                     status = ProfileStatus(
                         profile_name=config.name,
@@ -747,7 +747,7 @@ class AutologinApp:
             self._tray_host_timer.start()
 
         if self._tray is not None and not self._awaiting_initial_status:
-            self._tray.set_syncing(False)
+            self._tray.set_initialized(True)
 
         # Run Qt event loop
         logger.info("AutologinApp: Starting Qt event loop")

@@ -170,11 +170,13 @@ def test_status_tray_first_row_toggle_contract(qapp):
 
 def test_status_tray_paused_switches_first_row(qapp):
     tray = StatusTray()
+    tray.set_initialized(True)
+    tray.update_profile(ProfileStatus("dev", state=ProfileState.OK))
     enabled_icon_key = tray.tray_icon.icon().cacheKey()
     tray.set_monitoring_enabled(False)
     actions = tray.tray_icon.contextMenu().actions()
     assert actions[0].text() == "Resume Monitoring"
-    assert tray.current_icon_state == "disabled-paused"
+    assert tray.current_icon_state == "paused"
     assert tray.tray_icon.icon().cacheKey() != enabled_icon_key
     tray.close()
 
@@ -797,6 +799,97 @@ def test_error_details_dialog_config_error_shows_clear_message(qapp):
     assert "retention window exceeded" not in text
 
     dialog.close()
+
+
+class TestComputeIconState:
+    """Tests for _compute_icon_state() with new status priority logic.
+
+    Priority: error > warning > paused > working > normal
+    """
+
+    def test_initial_state_is_normal(self, qapp):
+        tray = StatusTray()
+        assert tray.current_icon_state == "normal"
+        tray.close()
+
+    def test_not_initialized_shows_normal_even_with_ok_profiles(self, qapp):
+        tray = StatusTray()
+        tray.update_profile(ProfileStatus("dev", state=ProfileState.OK))
+        assert tray.current_icon_state == "normal"
+        tray.close()
+
+    def test_global_error_shows_error_even_when_not_initialized(self, qapp):
+        tray = StatusTray()
+        tray.set_global_error("Test error")
+        assert tray.current_icon_state == "error"
+        tray.close()
+
+    def test_initialized_with_all_ok_shows_working(self, qapp):
+        tray = StatusTray()
+        tray.set_initialized(True)
+        tray.update_profile(ProfileStatus("dev", state=ProfileState.OK))
+        assert tray.current_icon_state == "working"
+        tray.close()
+
+    def test_initialized_with_warning_shows_warning(self, qapp):
+        tray = StatusTray()
+        tray.set_initialized(True)
+        tray.update_profile(ProfileStatus("dev", state=ProfileState.WARNING))
+        assert tray.current_icon_state == "warning"
+        tray.close()
+
+    def test_initialized_with_error_shows_error(self, qapp):
+        tray = StatusTray()
+        tray.set_initialized(True)
+        tray.update_profile(ProfileStatus("dev", state=ProfileState.ERROR))
+        assert tray.current_icon_state == "error"
+        tray.close()
+
+    def test_initialized_paused_no_errors_shows_paused(self, qapp):
+        tray = StatusTray()
+        tray.set_initialized(True)
+        tray.update_profile(ProfileStatus("dev", state=ProfileState.OK))
+        tray.set_monitoring_enabled(False)
+        assert tray.current_icon_state == "paused"
+        tray.close()
+
+    def test_error_takes_priority_over_warning(self, qapp):
+        tray = StatusTray()
+        tray.set_initialized(True)
+        tray.update_profile(ProfileStatus("dev", state=ProfileState.WARNING))
+        tray.update_profile(ProfileStatus("prod", state=ProfileState.ERROR))
+        assert tray.current_icon_state == "error"
+        tray.close()
+
+    def test_warning_takes_priority_over_paused(self, qapp):
+        tray = StatusTray()
+        tray.set_initialized(True)
+        tray.update_profile(ProfileStatus("dev", state=ProfileState.WARNING))
+        tray.set_monitoring_enabled(False)
+        assert tray.current_icon_state == "warning"
+        tray.close()
+
+    def test_error_takes_priority_over_paused(self, qapp):
+        tray = StatusTray()
+        tray.set_initialized(True)
+        tray.update_profile(ProfileStatus("dev", state=ProfileState.ERROR))
+        tray.set_monitoring_enabled(False)
+        assert tray.current_icon_state == "error"
+        tray.close()
+
+    def test_initialized_no_profiles_shows_error(self, qapp):
+        tray = StatusTray()
+        tray.set_initialized(True)
+        assert tray.current_icon_state == "error"
+        tray.close()
+
+    def test_global_error_always_shows_error(self, qapp):
+        tray = StatusTray()
+        tray.set_initialized(True)
+        tray.update_profile(ProfileStatus("dev", state=ProfileState.OK))
+        tray.set_global_error("Some global error")
+        assert tray.current_icon_state == "error"
+        tray.close()
 
 
 def test_error_details_dialog_config_error_shows_helpful_context(qapp):

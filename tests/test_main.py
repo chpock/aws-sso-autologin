@@ -351,7 +351,8 @@ def test_on_status_change_other_failure_uses_connectivity_copy():
     assert status.short_reason == "Connectivity issue"
 
 
-def test_paused_status_overrides_error_icon():
+def test_paused_status_does_not_override_error():
+    """Error takes priority over paused — error profile state wins."""
     from aws_sso_autologin.__main__ import AutologinApp
     from aws_sso_autologin.tray import ProfileState, ProfileStatus
 
@@ -359,7 +360,52 @@ def test_paused_status_overrides_error_icon():
     app._monitoring_enabled = False
     app._profile_status["dev"] = ProfileStatus("dev", state=ProfileState.ERROR)
 
+    assert app._aggregate_app_state() == "error"
+
+
+def test_aggregate_app_state_working():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.tray import ProfileState, ProfileStatus
+
+    app = AutologinApp([])
+    app._monitoring_enabled = True
+    app._profile_status["dev"] = ProfileStatus("dev", state=ProfileState.OK)
+
+    assert app._aggregate_app_state() == "working"
+
+
+def test_aggregate_app_state_warning():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.tray import ProfileState, ProfileStatus
+
+    app = AutologinApp([])
+    app._monitoring_enabled = True
+    app._profile_status["dev"] = ProfileStatus("dev", state=ProfileState.WARNING)
+
+    assert app._aggregate_app_state() == "warning"
+
+
+def test_aggregate_app_state_paused_no_errors():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.tray import ProfileState, ProfileStatus
+
+    app = AutologinApp([])
+    app._monitoring_enabled = False
+    app._profile_status["dev"] = ProfileStatus("dev", state=ProfileState.OK)
+
     assert app._aggregate_app_state() == "paused"
+
+
+def test_aggregate_app_state_warning_over_paused():
+    """Warning takes priority over paused in aggregate state."""
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.tray import ProfileState, ProfileStatus
+
+    app = AutologinApp([])
+    app._monitoring_enabled = False
+    app._profile_status["dev"] = ProfileStatus("dev", state=ProfileState.WARNING)
+
+    assert app._aggregate_app_state() == "warning"
 
 
 def test_indeterminate_failure_does_not_clear_error_state():
@@ -787,7 +833,7 @@ def test_load_profiles_no_warning_when_all_configured_profiles_exist():
     )
 
 
-def test_load_profiles_sets_syncing_until_first_status_update():
+def test_load_profiles_initializes_on_first_status_update():
     from aws_sso_autologin.__main__ import AutologinApp
     from aws_sso_autologin.models import RenewalStatus, SessionFailureType, SessionInfo
 
@@ -804,7 +850,6 @@ def test_load_profiles_sets_syncing_until_first_status_update():
         loaded = app._load_profiles()
 
     assert loaded is True
-    app._tray.set_syncing.assert_called_once_with(True)
     assert app._awaiting_initial_status is True
 
     info = SessionInfo(
@@ -814,7 +859,7 @@ def test_load_profiles_sets_syncing_until_first_status_update():
     )
     app._on_status_change("example", RenewalStatus.NOT_NEEDED, info)
     assert app._awaiting_initial_status is False
-    app._tray.set_syncing.assert_called_with(False)
+    app._tray.set_initialized.assert_called_with(True)
 
 
 def test_on_show_diagnostics_displays_error_dialog():

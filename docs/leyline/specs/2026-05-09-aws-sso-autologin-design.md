@@ -16,6 +16,7 @@ Product spec approved - round 9 - 2026-05-09
 Product spec approved - round 10 - 2026-05-09
 Product spec approved - round 11 - 2026-05-09
 Product spec approved - round 12 - 2026-05-10
+Product spec approved - round 13 - 2026-05-11
 
 ## Problem
 Users with multiple AWS SSO profiles lose active sessions during normal work and must manually run `aws sso login` per profile. This tool should run as a tray-only Linux/Wayland desktop app, monitor SSO session validity, and perform controlled auto-login when an SSO session is explicitly expired or invalid.
@@ -71,8 +72,8 @@ Users with multiple AWS SSO profiles lose active sessions during normal work and
   - do not watch files,
   - profile rows show OK with paused note.
 - Monitoring enabled/disabled state is not persisted across restarts.
-- Tray icon semantic set is fixed to: `enabled-ok`, `enabled-syncing`, `enabled-warning`, `enabled-error`, `disabled-paused`.
-- Status precedence is fixed to: `global error > profile error/warning > syncing > ok`; when monitoring is disabled, `disabled-paused` always takes precedence.
+- Tray icon semantic set is fixed to: `working`, `paused`, `error`, `warning`, `normal`.
+- Status precedence is fixed to: `global error > profile error > warning > paused > working`. The `normal` icon is shown only at startup before the first status cycle completes.
 - Command execution must capture stdout and stderr for diagnostics and enforce timeout/cancellation policy.
 - Logging must use a modern, mature logging package and write to stdout.
 - Use XDG variables wherever possible with conventional fallback paths.
