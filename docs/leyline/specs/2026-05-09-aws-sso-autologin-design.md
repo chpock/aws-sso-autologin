@@ -17,6 +17,7 @@ Product spec approved - round 10 - 2026-05-09
 Product spec approved - round 11 - 2026-05-09
 Product spec approved - round 12 - 2026-05-10
 Product spec approved - round 13 - 2026-05-11
+Product spec approved - round 14 - 2026-05-31
 
 ## Problem
 Users with multiple AWS SSO profiles lose active sessions during normal work and must manually run `aws sso login` per profile. This tool should run as a tray-only Linux/Wayland desktop app, monitor SSO session validity, and perform controlled auto-login when an SSO session is explicitly expired or invalid.
@@ -215,6 +216,7 @@ Implement Approach A. It matches current requirements with the best complexity-t
 ### Browser override per profile
 - `config.yaml` defines browser override as an argument list per profile.
 - For profile-specific login, create a temporary executable shell wrapper script that safely executes the configured command and passes `"$@"`.
+- The wrapper starts the configured browser command with `nohup` in the background, redirects stdin/stdout/stderr away from the caller, exits immediately after launch, and leaves the launched browser process running after the wrapper shell exits.
 - Set `BROWSER` environment variable to that wrapper path for the login process only.
 - Remove wrapper file after command completion.
 - Wrapper creation must be injection-safe and use an executable-capable directory (do not assume default temp is executable).

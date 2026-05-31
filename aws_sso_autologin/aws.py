@@ -510,9 +510,16 @@ def _create_browser_wrapper(browser: str | list[str]) -> tuple[str, str]:
     wrapper_path = os.path.join(wrapper_dir, "browser-wrapper.sh")
 
     fd = os.open(wrapper_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o700)
+    executable = shlex.quote(command[0])
+    command_line = " ".join(shlex.quote(arg) for arg in command)
     script_lines = [
         "#!/bin/sh",
-        "exec " + " ".join(shlex.quote(arg) for arg in command) + ' "$@"',
+        f"if ! command -v {executable} >/dev/null 2>&1; then",
+        "    printf '%s\\n' 'Browser command not found' >&2",
+        "    exit 127",
+        "fi",
+        f'nohup {command_line} "$@" </dev/null >/dev/null 2>&1 &',
+        "exit 0",
         "",
     ]
 

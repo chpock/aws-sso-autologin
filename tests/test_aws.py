@@ -4,6 +4,8 @@ import logging
 import os
 import stat
 import subprocess
+import sys
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -146,6 +148,7 @@ def test_get_profile_sso_config_reads_sso_values():
 
 def test_run_sso_login_browser_override_uses_secure_wrapper():
     wrapper_paths = []
+    wrapper_scripts = []
 
     def fake_run(command, timeout=0, env=None, process_id=None):
         assert command[:4] == ["aws", "sso", "login", "--profile"]
@@ -153,6 +156,8 @@ def test_run_sso_login_browser_override_uses_secure_wrapper():
         wrapper_path = env["BROWSER"]
         wrapper_paths.append(wrapper_path)
         assert os.path.exists(wrapper_path)
+        with open(wrapper_path, encoding="utf-8") as handle:
+            wrapper_scripts.append(handle.read())
         mode = stat.S_IMODE(os.stat(wrapper_path).st_mode)
         assert mode == 0o700
         return (0, "", "")
@@ -165,6 +170,12 @@ def test_run_sso_login_browser_override_uses_secure_wrapper():
     assert success is True
     assert error == ""
     assert len(wrapper_paths) == 1
+    assert 'exec firefox --new-window "$@"' not in wrapper_scripts[0]
+    assert (
+        'nohup firefox --new-window "$@" </dev/null >/dev/null 2>&1 &'
+        in wrapper_scripts[0]
+    )
+    assert "exit 0" in wrapper_scripts[0]
     assert not os.path.exists(wrapper_paths[0])
 
 
@@ -180,6 +191,42 @@ def test_run_sso_login_wrapper_failure_reports_diagnostics():
     assert success is False
     assert "wrapper" in error.lower()
     assert "permissions" in error.lower()
+
+
+def test_browser_wrapper_detaches_launched_process(tmp_path):
+    from aws_sso_autologin.aws import _cleanup_browser_wrapper, _create_browser_wrapper
+
+    marker_path = tmp_path / "started"
+    done_path = tmp_path / "done"
+    child_code = (
+        "import pathlib, sys, time; "
+        "pathlib.Path(sys.argv[1]).write_text('started'); "
+        "time.sleep(1); "
+        "pathlib.Path(sys.argv[2]).write_text('done')"
+    )
+    wrapper_path, wrapper_dir = _create_browser_wrapper(
+        [sys.executable, "-c", child_code]
+    )
+
+    try:
+        subprocess.run(
+            [wrapper_path, str(marker_path), str(done_path)],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+
+        assert not done_path.exists()
+
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and not done_path.exists():
+            time.sleep(0.05)
+
+        assert marker_path.read_text() == "started"
+        assert done_path.read_text() == "done"
+    finally:
+        _cleanup_browser_wrapper(wrapper_path, wrapper_dir)
 
 
 def test_timeout_escalation_terminates_then_kills():
