@@ -33,6 +33,13 @@ Surfaces: developer-facing
   - `info`: lifecycle milestones and user-visible operations.
   - `warn`: recoverable anomalies and degraded modes.
   - `error`: operation-fatal failures.
+- AWS CLI subprocess trace logs use process-scoped logger names in the shape
+  `aws_sso_autologin.aws.<id>` so operators can visually group start,
+  progress, output, completion, and timeout records for one subprocess launch.
+- AWS CLI subprocess progress logs emit once per second while the subprocess is
+  running. The progress message is `subprocess output received` when new
+  sanitized stdout/stderr is available and `<...still running...>` when no new
+  output is available for that interval.
 
 ## Exit-code semantics
 - `0`: successful completion for bounded modes/checks.
@@ -68,6 +75,10 @@ Canonical mappings:
 - profile/config loading failure -> `profiles_load_failed` with `error`
 - external command execution failure -> `aws_command_failed` with `command`,
   `exit_code`, `error`
+- external command progress with output -> `subprocess_running_output` with
+  `command`, `aws_process_id`, sanitized stdout/stderr fields
+- external command progress without output -> `subprocess_still_running` with
+  `command`, `aws_process_id`
 - health monitoring start failure -> `health_monitor_start_failed` with `error`
 - unhandled runtime exception -> `runtime_unhandled_exception` with `error`,
   `exc_info=true`
@@ -94,5 +105,6 @@ Canonical mappings:
 
 ## Approvals
 UX spec approved - round 1 - 2026-05-10
+UX spec approved - round 2 - 2026-05-31
 
 design-interrogation skipped - scope: developer-facing surface with no multi-screen UI and no interaction-flow expansion beyond structured logging contract

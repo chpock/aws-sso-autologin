@@ -1,5 +1,6 @@
 """Tests for AWS module."""
 
+import logging
 import os
 import stat
 import subprocess
@@ -146,8 +147,9 @@ def test_get_profile_sso_config_reads_sso_values():
 def test_run_sso_login_browser_override_uses_secure_wrapper():
     wrapper_paths = []
 
-    def fake_run(command, timeout=0, env=None):
+    def fake_run(command, timeout=0, env=None, process_id=None):
         assert command[:4] == ["aws", "sso", "login", "--profile"]
+        assert env is not None
         wrapper_path = env["BROWSER"]
         wrapper_paths.append(wrapper_path)
         assert os.path.exists(wrapper_path)
@@ -167,7 +169,7 @@ def test_run_sso_login_browser_override_uses_secure_wrapper():
 
 
 def test_run_sso_login_wrapper_failure_reports_diagnostics():
-    def fake_run(command, timeout=0, env=None):
+    def fake_run(command, timeout=0, env=None, process_id=None):
         return (126, "", "permission denied")
 
     with patch(
@@ -199,42 +201,43 @@ def test_timeout_escalation_terminates_then_kills():
     assert "force kill" in str(error.value)
 
 
-def test_timeout_logs_stdout_stderr_on_terminate():
+def test_timeout_logs_stdout_stderr_on_terminate(caplog):
     """Test stdout/stderr preview logging on timeout termination."""
     from aws_sso_autologin import aws
 
+    caplog.set_level(logging.ERROR, logger="aws_sso_autologin.aws")
     process = MagicMock()
     process.communicate.side_effect = [
         subprocess.TimeoutExpired(cmd=["aws"], timeout=1),
         ("stdout content", "stderr content"),
     ]
 
-    with patch("subprocess.Popen", return_value=process):
-        with patch.object(aws.logger, "error") as mock_error:
+    with patch("aws_sso_autologin.aws._next_aws_process_id", return_value="timeout-a"):
+        with patch("subprocess.Popen", return_value=process):
             with pytest.raises(AWSCliError):
                 aws._run_subprocess_with_escalation(["aws", "sso", "login"], timeout=1)
 
     # Find the error log call for subprocess termination
-    error_calls = [
-        call
-        for call in mock_error.call_args_list
-        if call.kwargs.get("extra", {}).get("event") == "subprocess_failed"
+    error_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "subprocess_failed"
     ]
-    assert len(error_calls) == 1
+    assert len(error_records) == 1
 
-    extra = error_calls[0].kwargs["extra"]
-    assert extra["reason"] == "timeout_terminated"
+    record = error_records[0]
+    assert record.name == "aws_sso_autologin.aws.timeout-a"
+    assert record.reason == "timeout_terminated"
     # stdout_preview and stderr_preview should be logged (first 200 chars)
-    assert "stdout_preview" in extra
-    assert "stderr_preview" in extra
-    assert extra["stdout_preview"] == "stdout content"
-    assert extra["stderr_preview"] == "stderr content"
+    assert record.stdout_preview == "stdout content"
+    assert record.stderr_preview == "stderr content"
 
 
-def test_timeout_force_kill_logs_stdout_stderr():
+def test_timeout_force_kill_logs_stdout_stderr(caplog):
     """Test that stdout/stderr preview is logged when subprocess requires force kill."""
     from aws_sso_autologin import aws
 
+    caplog.set_level(logging.ERROR, logger="aws_sso_autologin.aws")
     process = MagicMock()
     process.communicate.side_effect = [
         subprocess.TimeoutExpired(cmd=["aws"], timeout=1),
@@ -242,38 +245,96 @@ def test_timeout_force_kill_logs_stdout_stderr():
         ("stdout after kill", "stderr after kill"),
     ]
 
-    with patch("subprocess.Popen", return_value=process):
-        with patch.object(aws.logger, "error") as mock_error:
+    with patch("aws_sso_autologin.aws._next_aws_process_id", return_value="timeout-b"):
+        with patch("subprocess.Popen", return_value=process):
             with pytest.raises(AWSCliError):
                 aws._run_subprocess_with_escalation(["aws", "sso", "login"], timeout=1)
 
     # Find the error log call for force kill
-    error_calls = [
-        call
-        for call in mock_error.call_args_list
-        if call.kwargs.get("extra", {}).get("event") == "subprocess_failed"
+    error_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "subprocess_failed"
     ]
-    assert len(error_calls) == 1
+    assert len(error_records) == 1
 
-    extra = error_calls[0].kwargs["extra"]
-    assert extra["reason"] == "timeout_force_kill"
+    record = error_records[0]
+    assert record.name == "aws_sso_autologin.aws.timeout-b"
+    assert record.reason == "timeout_force_kill"
     # stdout_preview and stderr_preview should be logged (first 200 chars)
-    assert "stdout_preview" in extra
-    assert "stderr_preview" in extra
-    assert extra["stdout_preview"] == "stdout after kill"
-    assert extra["stderr_preview"] == "stderr after kill"
+    assert record.stdout_preview == "stdout after kill"
+    assert record.stderr_preview == "stderr after kill"
 
 
-def test_run_aws_command_logs_failed_event_on_non_zero_exit():
+def test_run_aws_command_logs_failed_event_on_non_zero_exit(caplog):
     from aws_sso_autologin import aws
 
+    caplog.set_level(logging.INFO, logger="aws_sso_autologin.aws")
     with patch("aws_sso_autologin.aws._run_subprocess_with_escalation") as mock_run:
         mock_run.return_value = (1, "", "boom")
-        with patch.object(aws.logger, "info") as mock_info:
+        with patch(
+            "aws_sso_autologin.aws._next_aws_process_id", return_value="failed-1"
+        ):
             aws._run_aws_command(["sts", "get-caller-identity"], timeout=5)
 
-    extra = mock_info.call_args.kwargs["extra"]
-    assert extra["event"] == "aws_command_failed"
-    assert extra["status"] == "failed"
-    assert extra["command"] == ["aws", "sts", "get-caller-identity"]
-    assert extra["exit_code"] == 1
+    mock_run.assert_called_once_with(
+        ["aws", "sts", "get-caller-identity"],
+        timeout=5,
+        env=None,
+        process_id="failed-1",
+    )
+    failed_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "aws_command_failed"
+    ]
+    assert len(failed_records) == 1
+    record = failed_records[0]
+    assert record.name == "aws_sso_autologin.aws.failed-1"
+    assert record.status == "failed"
+    assert record.command == ["aws", "sts", "get-caller-identity"]
+    assert record.exit_code == 1
+
+
+def test_running_subprocess_logs_output_or_still_running_each_interval(caplog):
+    from aws_sso_autologin import aws
+
+    caplog.set_level(5, logger="aws_sso_autologin.aws")
+    process = MagicMock()
+    process.returncode = 0
+    process.communicate.side_effect = [
+        subprocess.TimeoutExpired(
+            cmd=["aws"], timeout=1, output="first chunk", stderr=""
+        ),
+        subprocess.TimeoutExpired(
+            cmd=["aws"], timeout=1, output="first chunk", stderr=""
+        ),
+        ("first chunk", "done"),
+    ]
+
+    with patch("aws_sso_autologin.aws._next_aws_process_id", return_value="trace-1"):
+        with patch("subprocess.Popen", return_value=process):
+            result = aws._run_subprocess_with_escalation(["aws", "sts"], timeout=3)
+
+    assert result == (0, "first chunk", "done")
+
+    process_records = [
+        record
+        for record in caplog.records
+        if record.name == "aws_sso_autologin.aws.trace-1"
+    ]
+    running_output = [
+        record
+        for record in process_records
+        if getattr(record, "event", None) == "subprocess_running_output"
+    ]
+    still_running = [
+        record
+        for record in process_records
+        if getattr(record, "event", None) == "subprocess_still_running"
+    ]
+
+    assert len(running_output) == 1
+    assert running_output[0].stdout == "first chunk"
+    assert len(still_running) == 1
+    assert still_running[0].getMessage() == "<...still running...>"

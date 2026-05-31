@@ -6,6 +6,8 @@ This module provides functions to interact with AWS CLI for:
 - Discovering AWS profiles
 """
 
+import itertools
+import logging
 import os
 import shlex
 import stat
@@ -15,31 +17,123 @@ import time
 from typing import NamedTuple
 
 from aws_sso_autologin.errors import AWSCliError
-from aws_sso_autologin.logger import get_logger, sanitize_trace_payload
+from aws_sso_autologin.logger import TRACE_LEVEL_NUM, get_logger, sanitize_trace_payload
 
 logger = get_logger(__name__)
+_aws_process_counter = itertools.count(1)
+
+
+def _next_aws_process_id() -> str:
+    return str(next(_aws_process_counter))
+
+
+def _get_aws_process_logger(process_id: str) -> logging.Logger:
+    return logging.getLogger(f"{__name__}.{process_id}")
+
+
+def _coerce_process_output(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    return str(value)
+
+
+def _output_delta(current: str, previous: str) -> tuple[str, str]:
+    if current.startswith(previous):
+        return current[len(previous) :], current
+    return current, previous + current
+
+
+def _output_trace_fields(stdout: str, stderr: str) -> dict[str, object]:
+    stdout_payload = sanitize_trace_payload(stdout)
+    stderr_payload = sanitize_trace_payload(stderr)
+    return {
+        "stdout": stdout_payload["value"],
+        "stderr": stderr_payload["value"],
+        "stdout_preview": stdout_payload["value"][:200],
+        "stderr_preview": stderr_payload["value"][:200],
+        "stdout_payload_size_bytes": stdout_payload["payload_size_bytes"],
+        "stderr_payload_size_bytes": stderr_payload["payload_size_bytes"],
+        "stdout_payload_truncated": stdout_payload["payload_truncated"],
+        "stderr_payload_truncated": stderr_payload["payload_truncated"],
+        "stdout_redaction_applied": stdout_payload["redaction_applied"],
+        "stderr_redaction_applied": stderr_payload["redaction_applied"],
+        "stdout_detail_unavailable_reason": stdout_payload.get(
+            "detail_unavailable_reason"
+        ),
+        "stderr_detail_unavailable_reason": stderr_payload.get(
+            "detail_unavailable_reason"
+        ),
+    }
+
+
+def _log_subprocess_running_trace(
+    process_logger: logging.Logger,
+    command: list[str],
+    stdout: str,
+    stderr: str,
+    stdout_seen: str,
+    stderr_seen: str,
+    process_id: str,
+) -> tuple[str, str]:
+    stdout_delta, stdout_seen = _output_delta(stdout, stdout_seen)
+    stderr_delta, stderr_seen = _output_delta(stderr, stderr_seen)
+
+    if stdout_delta or stderr_delta:
+        process_logger.log(
+            TRACE_LEVEL_NUM,
+            "subprocess output received",
+            extra={
+                "event": "subprocess_running_output",
+                "command": command,
+                "aws_process_id": process_id,
+                **_output_trace_fields(stdout_delta, stderr_delta),
+            },
+        )
+        return stdout_seen, stderr_seen
+
+    process_logger.log(
+        TRACE_LEVEL_NUM,
+        "<...still running...>",
+        extra={
+            "event": "subprocess_still_running",
+            "command": command,
+            "aws_process_id": process_id,
+        },
+    )
+    return stdout_seen, stderr_seen
 
 
 def _run_subprocess_with_escalation(
     command: list[str],
     timeout: int,
     env: dict[str, str] | None = None,
+    process_id: str | None = None,
 ) -> tuple[int, str, str]:
     """Run command with terminate->grace->kill timeout escalation."""
+    process_id = process_id or _next_aws_process_id()
+    process_logger = _get_aws_process_logger(process_id)
     started_at = time.time()
-    logger.log(
-        5,
+    process_logger.log(
+        TRACE_LEVEL_NUM,
         "subprocess started",
-        extra={"event": "subprocess_started", "command": command, "timeout_s": timeout},
+        extra={
+            "event": "subprocess_started",
+            "command": command,
+            "timeout_s": timeout,
+            "aws_process_id": process_id,
+        },
     )
-    logger.log(
-        5,
+    process_logger.log(
+        TRACE_LEVEL_NUM,
         "subprocess input trace",
         extra={
             "event": "subprocess_trace",
             "command": command,
             "timeout_s": timeout,
             "env_overridden": env is not None,
+            "aws_process_id": process_id,
         },
     )
     process = subprocess.Popen(
@@ -51,78 +145,93 @@ def _run_subprocess_with_escalation(
     )
 
     try:
-        stdout, stderr = process.communicate(timeout=timeout)
-        stdout_payload = sanitize_trace_payload(stdout)
-        stderr_payload = sanitize_trace_payload(stderr)
-        logger.log(
-            5,
-            "subprocess output trace",
-            extra={
-                "event": "subprocess_trace",
-                "command": command,
-                "exit_code": process.returncode,
-                "stdout": stdout_payload["value"],
-                "stderr": stderr_payload["value"],
-                "stdout_payload_size_bytes": stdout_payload["payload_size_bytes"],
-                "stderr_payload_size_bytes": stderr_payload["payload_size_bytes"],
-                "stdout_payload_truncated": stdout_payload["payload_truncated"],
-                "stderr_payload_truncated": stderr_payload["payload_truncated"],
-                "stdout_redaction_applied": stdout_payload["redaction_applied"],
-                "stderr_redaction_applied": stderr_payload["redaction_applied"],
-                "stdout_detail_unavailable_reason": stdout_payload.get(
-                    "detail_unavailable_reason"
-                ),
-                "stderr_detail_unavailable_reason": stderr_payload.get(
-                    "detail_unavailable_reason"
-                ),
-            },
-        )
-        logger.log(
-            5,
-            "subprocess completed",
-            extra={
-                "event": "subprocess_completed",
-                "status": "completed",
-                "command": command,
-                "exit_code": process.returncode,
-                "duration_ms": int((time.time() - started_at) * 1000),
-            },
-        )
-        return process.returncode, stdout or "", stderr or ""
+        stdout_seen = ""
+        stderr_seen = ""
+        remaining_timeout = float(timeout)
+        while True:
+            interval = min(1.0, remaining_timeout)
+            if interval <= 0:
+                raise subprocess.TimeoutExpired(
+                    cmd=command,
+                    timeout=timeout,
+                    output=stdout_seen,
+                    stderr=stderr_seen,
+                )
+
+            try:
+                stdout_raw, stderr_raw = process.communicate(timeout=interval)
+                stdout = _coerce_process_output(stdout_raw)
+                stderr = _coerce_process_output(stderr_raw)
+                process_logger.log(
+                    TRACE_LEVEL_NUM,
+                    "subprocess output trace",
+                    extra={
+                        "event": "subprocess_trace",
+                        "command": command,
+                        "exit_code": process.returncode,
+                        "aws_process_id": process_id,
+                        **_output_trace_fields(stdout, stderr),
+                    },
+                )
+                process_logger.log(
+                    TRACE_LEVEL_NUM,
+                    "subprocess completed",
+                    extra={
+                        "event": "subprocess_completed",
+                        "status": "completed",
+                        "command": command,
+                        "exit_code": process.returncode,
+                        "duration_ms": int((time.time() - started_at) * 1000),
+                        "aws_process_id": process_id,
+                    },
+                )
+                return process.returncode, stdout, stderr
+            except subprocess.TimeoutExpired as exc:
+                current_stdout = _coerce_process_output(
+                    getattr(exc, "stdout", None) or getattr(exc, "output", None)
+                )
+                current_stderr = _coerce_process_output(getattr(exc, "stderr", None))
+                stdout_seen, stderr_seen = _log_subprocess_running_trace(
+                    process_logger,
+                    command,
+                    current_stdout,
+                    current_stderr,
+                    stdout_seen,
+                    stderr_seen,
+                    process_id,
+                )
+                remaining_timeout -= interval
+                if remaining_timeout <= 0:
+                    raise subprocess.TimeoutExpired(
+                        cmd=command,
+                        timeout=timeout,
+                        output=stdout_seen,
+                        stderr=stderr_seen,
+                    )
     except subprocess.TimeoutExpired:
-        logger.warning(
+        process_logger.warning(
             "subprocess timeout reached",
             extra={
                 "event": "subprocess_timeout",
                 "command": command,
                 "timeout_s": timeout,
+                "aws_process_id": process_id,
             },
         )
         process.terminate()
         try:
             stdout, stderr = process.communicate(timeout=3)
-            stdout_payload = sanitize_trace_payload(stdout)
-            stderr_payload = sanitize_trace_payload(stderr)
-            logger.error(
+            process_logger.error(
                 "subprocess terminated after timeout",
                 extra={
                     "event": "subprocess_failed",
                     "status": "failed",
                     "reason": "timeout_terminated",
                     "command": command,
-                    "stdout_preview": stdout_payload["value"][:200],
-                    "stderr_preview": stderr_payload["value"][:200],
-                    "stdout_payload_size_bytes": stdout_payload["payload_size_bytes"],
-                    "stderr_payload_size_bytes": stderr_payload["payload_size_bytes"],
-                    "stdout_payload_truncated": stdout_payload["payload_truncated"],
-                    "stderr_payload_truncated": stderr_payload["payload_truncated"],
-                    "stdout_redaction_applied": stdout_payload["redaction_applied"],
-                    "stderr_redaction_applied": stderr_payload["redaction_applied"],
-                    "stdout_detail_unavailable_reason": stdout_payload.get(
-                        "detail_unavailable_reason"
-                    ),
-                    "stderr_detail_unavailable_reason": stderr_payload.get(
-                        "detail_unavailable_reason"
+                    "aws_process_id": process_id,
+                    **_output_trace_fields(
+                        _coerce_process_output(stdout),
+                        _coerce_process_output(stderr),
                     ),
                 },
             )
@@ -132,28 +241,17 @@ def _run_subprocess_with_escalation(
         except subprocess.TimeoutExpired:
             process.kill()
             stdout, stderr = process.communicate()
-            stdout_payload = sanitize_trace_payload(stdout)
-            stderr_payload = sanitize_trace_payload(stderr)
-            logger.error(
+            process_logger.error(
                 "subprocess force killed after timeout",
                 extra={
                     "event": "subprocess_failed",
                     "status": "failed",
                     "reason": "timeout_force_kill",
                     "command": command,
-                    "stdout_preview": stdout_payload["value"][:200],
-                    "stderr_preview": stderr_payload["value"][:200],
-                    "stdout_payload_size_bytes": stdout_payload["payload_size_bytes"],
-                    "stderr_payload_size_bytes": stderr_payload["payload_size_bytes"],
-                    "stdout_payload_truncated": stdout_payload["payload_truncated"],
-                    "stderr_payload_truncated": stderr_payload["payload_truncated"],
-                    "stdout_redaction_applied": stdout_payload["redaction_applied"],
-                    "stderr_redaction_applied": stderr_payload["redaction_applied"],
-                    "stdout_detail_unavailable_reason": stdout_payload.get(
-                        "detail_unavailable_reason"
-                    ),
-                    "stderr_detail_unavailable_reason": stderr_payload.get(
-                        "detail_unavailable_reason"
+                    "aws_process_id": process_id,
+                    **_output_trace_fields(
+                        _coerce_process_output(stdout),
+                        _coerce_process_output(stderr),
                     ),
                 },
             )
@@ -198,9 +296,11 @@ def _run_aws_command(
         AWSCliError: If command execution fails
     """
     full_command = ["aws"] + command
+    process_id = _next_aws_process_id()
+    process_logger = _get_aws_process_logger(process_id)
 
     try:
-        logger.debug(
+        process_logger.debug(
             "aws command started",
             extra={
                 "event": "aws_command_started",
@@ -208,6 +308,7 @@ def _run_aws_command(
                 "timeout_s": timeout,
                 "operation_context": operation_context,
                 "env_overridden": env is not None,
+                "aws_process_id": process_id,
             },
         )
 
@@ -215,6 +316,7 @@ def _run_aws_command(
             full_command,
             timeout=timeout,
             env=env,
+            process_id=process_id,
         )
 
         if returncode != 0:
@@ -226,7 +328,7 @@ def _run_aws_command(
             )
 
             if is_expected_failure:
-                logger.info(
+                process_logger.info(
                     "profile is not an SSO profile (no sso_session configured)",
                     extra={
                         "event": "sso_config_check_negative",
@@ -234,10 +336,11 @@ def _run_aws_command(
                         "command": full_command,
                         "exit_code": returncode,
                         "operation_context": operation_context,
+                        "aws_process_id": process_id,
                     },
                 )
             else:
-                logger.info(
+                process_logger.info(
                     "aws command finished with non-zero exit",
                     extra={
                         "event": "aws_command_failed",
@@ -247,16 +350,18 @@ def _run_aws_command(
                         "stdout_preview": (stdout or "")[:200],
                         "stderr_preview": (stderr or "")[:200],
                         "operation_context": operation_context,
+                        "aws_process_id": process_id,
                     },
                 )
 
-        logger.debug(
+        process_logger.debug(
             "aws command completed",
             extra={
                 "event": "aws_command_completed",
                 "status": "succeeded" if returncode == 0 else "failed",
                 "exit_code": returncode,
                 "operation_context": operation_context,
+                "aws_process_id": process_id,
             },
         )
 
@@ -264,20 +369,26 @@ def _run_aws_command(
 
     except FileNotFoundError:
         error_msg = "AWS CLI not found. Please ensure 'aws' is installed and in PATH"
-        logger.error(
+        process_logger.error(
             error_msg,
             extra={
                 "event": "aws_command_failed",
                 "status": "failed",
                 "reason": "aws_cli_not_found",
+                "aws_process_id": process_id,
             },
         )
         raise AWSCliError(error_msg)
     except Exception as e:
         error_msg = f"Failed to run AWS command: {e}"
-        logger.error(
+        process_logger.error(
             error_msg,
-            extra={"event": "aws_command_failed", "status": "failed", "error": str(e)},
+            extra={
+                "event": "aws_command_failed",
+                "status": "failed",
+                "error": str(e),
+                "aws_process_id": process_id,
+            },
         )
         raise AWSCliError(error_msg)
 

@@ -64,6 +64,13 @@ application actions and ensure full conformance to Logging requirements.
 - Every external interaction emits:
   - lifecycle event(s) at `debug`/`info` level, and
   - full request/response payload detail at `trace` level.
+- Every AWS CLI subprocess launch emits all launch-specific subprocess and
+  command lifecycle logs through a process-scoped logger named
+  `aws_sso_autologin.aws.<id>`, where `<id>` is unique for the application run.
+- While an AWS CLI subprocess is running, the runner checks captured output once
+  per second at `trace` level; each interval emits either sanitized stdout/stderr
+  delta detail when output changed or `<...still running...>` when no output was
+  observed.
 - If full payload detail is unavailable, emit
   `detail_unavailable_reason=<reason>` and include all available metadata.
 - Sensitive data policy for trace details:
@@ -81,7 +88,7 @@ application actions and ensure full conformance to Logging requirements.
 |-----------|----------------------|-------|--------------------|-----------------|--------------|
 | startup/main | mode selection + process lifecycle | app runtime | `mode_selected`, `startup_preflight_started`, `startup_preflight_completed` | `event`, `mode`, `status`, `duration_ms` | unit/integration tests in `tests/test_main.py` |
 | service/preflight | tray-host probing + env inspection | service | `tray_host_probe_started`, `tray_host_probe_completed`, `tray_host_unavailable_*` | `event`, `host_type`, `status`, `reason` | `tests/test_service.py` |
-| checker/aws | subprocess command execution | checker/aws | `aws_command_started`, `aws_command_completed`, `aws_command_failed` | `event`, `command`, `exit_code`, `duration_ms` | `tests/test_checker.py`, `tests/test_aws.py` |
+| checker/aws | subprocess command execution | checker/aws | `aws_command_started`, `aws_command_completed`, `aws_command_failed`, `subprocess_running_output`, `subprocess_still_running` | `event`, `command`, `exit_code`, `duration_ms`, `aws_process_id`, process-scoped logger name | `tests/test_checker.py`, `tests/test_aws.py` |
 | tray/diagnostics | clipboard/UI diagnostic emission | tray | `diagnostics_copy_started`, `diagnostics_copy_succeeded`, `diagnostics_copy_failed` | `event`, `status`, `error` | `tests/test_tray.py` |
 | watchdog/policy | timeout and policy guardrails | watchdog/policy | `watchdog_started`, `watchdog_timeout`, `policy_violation` | `event`, `mode`, `timeout_s`, `exit_code` | `tests/test_watchdog.py`, `tests/test_mode_policy.py` |
 
@@ -135,6 +142,7 @@ assertions.
 
 ## Approvals
 Product spec approved - round 1 - 2026-05-10
+Product spec approved - round 2 - 2026-05-31
 
 ## Deep-discovery
 Deep-discovery pass complete - round 1 - 2026-05-10
