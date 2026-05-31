@@ -40,6 +40,9 @@ Surfaces: developer-facing
   running. The progress message is `subprocess output received` when new
   sanitized stdout/stderr is available and `<...still running...>` when no new
   output is available for that interval.
+- When the subprocess exits, any final output that was not seen by the last
+  progress check is emitted once as `subprocess output received`; output already
+  emitted during progress checks is not repeated at completion.
 
 ## Exit-code semantics
 - `0`: successful completion for bounded modes/checks.

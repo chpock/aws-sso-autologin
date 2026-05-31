@@ -381,7 +381,39 @@ def test_running_subprocess_logs_output_or_still_running_each_interval(caplog):
         if getattr(record, "event", None) == "subprocess_still_running"
     ]
 
-    assert len(running_output) == 1
+    assert len(running_output) == 2
     assert running_output[0].stdout == "first chunk"
+    assert running_output[0].stderr == ""
+    assert running_output[1].stdout == ""
+    assert running_output[1].stderr == "done"
     assert len(still_running) == 1
     assert still_running[0].getMessage() == "<...still running...>"
+
+
+def test_completed_subprocess_does_not_repeat_already_logged_output(caplog):
+    from aws_sso_autologin import aws
+
+    caplog.set_level(5, logger="aws_sso_autologin.aws")
+    process = MagicMock()
+    process.returncode = 0
+    process.communicate.side_effect = [
+        subprocess.TimeoutExpired(
+            cmd=["aws"], timeout=1, output="already logged", stderr=""
+        ),
+        ("already logged", ""),
+    ]
+
+    with patch("aws_sso_autologin.aws._next_aws_process_id", return_value="trace-2"):
+        with patch("subprocess.Popen", return_value=process):
+            result = aws._run_subprocess_with_escalation(["aws", "sts"], timeout=2)
+
+    assert result == (0, "already logged", "")
+
+    running_output = [
+        record
+        for record in caplog.records
+        if record.name == "aws_sso_autologin.aws.trace-2"
+        and getattr(record, "event", None) == "subprocess_running_output"
+    ]
+
+    assert [record.stdout for record in running_output] == ["already logged"]

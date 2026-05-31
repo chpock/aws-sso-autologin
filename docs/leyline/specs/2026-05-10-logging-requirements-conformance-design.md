@@ -71,6 +71,9 @@ application actions and ensure full conformance to Logging requirements.
   per second at `trace` level; each interval emits either sanitized stdout/stderr
   delta detail when output changed or `<...still running...>` when no output was
   observed.
+- On subprocess completion, the runner emits only final stdout/stderr delta that
+  was not already emitted by earlier progress checks; already logged output must
+  not be replayed in a second completion trace record.
 - If full payload detail is unavailable, emit
   `detail_unavailable_reason=<reason>` and include all available metadata.
 - Sensitive data policy for trace details:

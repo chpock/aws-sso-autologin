@@ -105,6 +105,33 @@ def _log_subprocess_running_trace(
     return stdout_seen, stderr_seen
 
 
+def _log_subprocess_output_delta(
+    process_logger: logging.Logger,
+    command: list[str],
+    stdout: str,
+    stderr: str,
+    stdout_seen: str,
+    stderr_seen: str,
+    process_id: str,
+) -> tuple[str, str]:
+    stdout_delta, stdout_seen = _output_delta(stdout, stdout_seen)
+    stderr_delta, stderr_seen = _output_delta(stderr, stderr_seen)
+
+    if stdout_delta or stderr_delta:
+        process_logger.log(
+            TRACE_LEVEL_NUM,
+            "subprocess output received",
+            extra={
+                "event": "subprocess_running_output",
+                "command": command,
+                "aws_process_id": process_id,
+                **_output_trace_fields(stdout_delta, stderr_delta),
+            },
+        )
+
+    return stdout_seen, stderr_seen
+
+
 def _run_subprocess_with_escalation(
     command: list[str],
     timeout: int,
@@ -162,16 +189,14 @@ def _run_subprocess_with_escalation(
                 stdout_raw, stderr_raw = process.communicate(timeout=interval)
                 stdout = _coerce_process_output(stdout_raw)
                 stderr = _coerce_process_output(stderr_raw)
-                process_logger.log(
-                    TRACE_LEVEL_NUM,
-                    "subprocess output trace",
-                    extra={
-                        "event": "subprocess_trace",
-                        "command": command,
-                        "exit_code": process.returncode,
-                        "aws_process_id": process_id,
-                        **_output_trace_fields(stdout, stderr),
-                    },
+                stdout_seen, stderr_seen = _log_subprocess_output_delta(
+                    process_logger,
+                    command,
+                    stdout,
+                    stderr,
+                    stdout_seen,
+                    stderr_seen,
+                    process_id,
                 )
                 process_logger.log(
                     TRACE_LEVEL_NUM,
