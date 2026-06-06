@@ -374,6 +374,7 @@ class HealthOperator:
         self._session_operator = session_operator or SessionOperator(checker=checker)
         self._checker = checker or SessionChecker()
         self._profiles: list[ProfileConfig] = []
+        self._paused_profiles: set[str] = set()
         self._last_heartbeat: float = time.time()
         self._running = False
         self._monitor_thread: threading.Thread | None = None
@@ -388,6 +389,25 @@ class HealthOperator:
             profiles: List of profiles to monitor.
         """
         self._profiles = profiles
+        active_names = {p.name for p in profiles}
+        self._paused_profiles = {
+            name for name in self._paused_profiles if name in active_names
+        }
+
+    def set_profile_monitoring_enabled(self, profile_name: str, enabled: bool) -> None:
+        """Enable or disable checks for a single profile."""
+        if enabled:
+            self._paused_profiles.discard(profile_name)
+        else:
+            self._paused_profiles.add(profile_name)
+        logger.info(
+            "profile monitoring state changed",
+            extra={
+                "event": "profile_monitoring_state_changed",
+                "profile": profile_name,
+                "monitoring_enabled": enabled,
+            },
+        )
 
     def set_status_callback(
         self,
@@ -433,6 +453,16 @@ class HealthOperator:
     def _check_all_profiles(self) -> None:
         """Check health of all registered profiles."""
         for profile in self._profiles:
+            if profile.name in self._paused_profiles:
+                logger.debug(
+                    "profile health check skipped because profile monitoring is paused",
+                    extra={
+                        "event": "profile_health_check_skipped",
+                        "profile": profile.name,
+                        "reason": "profile_paused",
+                    },
+                )
+                continue
             try:
                 info = self._checker.get_session_info(profile)
                 status = self._session_operator.check_and_renew_with_info(profile, info)
@@ -503,6 +533,9 @@ class HealthOperator:
         """
         results = {}
         for profile in self._profiles:
+            if profile.name in self._paused_profiles:
+                results[profile.name] = RenewalStatus.NOT_NEEDED
+                continue
             try:
                 status = self._session_operator.check_and_renew(profile)
                 results[profile.name] = status

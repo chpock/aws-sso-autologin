@@ -18,6 +18,10 @@ UX spec approved - round 11 - 2026-05-09
 UX spec approved - round 12 - 2026-05-10
 UX spec approved - round 13 - 2026-05-10
 UX spec approved - round 14 - 2026-05-11
+UX spec approved - round 15 - 2026-06-05
+UX spec approved - round 16 - 2026-06-06
+UX spec approved - round 17 - 2026-06-06
+UX spec approved - round 18 - 2026-06-06
 Design-interrogation pass complete - round 1 - 2026-05-09
 
 ## Design-interrogation notes
@@ -106,7 +110,7 @@ Failure path: on failed preflight, runtime emits actionable reason and exits non
 3. Tray icon appears in enabled state.
 4. App discovers SSO profiles and starts 30-second checks.
 5. Menu shows control row, profile rows with healthy text, and quit action.
-6. Profile rows display `Profile: <name> - OK, last refresh: <duration>` when checks succeed.
+6. Profile rows display current state and next action together when actionable, for example `<name> - OK -> Pause monitoring` or `<name> - OK (paused) -> Resume monitoring`.
 
 Failure path: if tray-host preflight fails (no compatible StatusNotifier/system tray host), no tray icon/menu/dialog is shown, app exits non-zero, and one actionable stdout message explains tray host support is required. If startup succeeds but one or more profiles fail checks, those profile rows show Warning or Error status and become actionable for diagnostics.
 
@@ -122,10 +126,12 @@ Failure path: if login fails, profile row shows Error/Warning and opens detailed
 1. User selects `Pause Monitoring` in first row, or app starts with safe mode active.
 2. App stops (or keeps stopped) all background activity: checks, watchers, and refresh loops.
 3. Icon switches to `paused` variant.
-4. Profile rows display OK paused messaging.
+4. Profile rows display explicit paused messaging; when global pause removes any per-profile action, affected rows are visibly disabled.
 5. First row shows `Resume Monitoring` while paused, unless a global error is active.
 6. User selects `Resume Monitoring` to resume monitoring.
 7. Menu closes on any first-row click.
+
+Persistence path: user-selected global pause state is persisted across restarts and takes precedence over per-profile state until resumed; safe mode remains a runtime-only override for that launch.
 
 ### Flow 4 - Global error (AWS CLI/discovery/config failure)
 1. App encounters a global blocking condition: unavailable/broken AWS CLI, unsupported AWS CLI version, globally invalid app config, or config trust-policy violation (owner/permission/symlink checks).
@@ -137,8 +143,11 @@ Recovery path: after the blocking condition is resolved, first row returns to th
 
 ### Flow 5 - Profile row interaction
 1. User selects profile row.
-2. If profile is OK (including paused OK), menu closes and no dialog opens.
-3. If profile is Warning or Error, diagnostics dialog opens with complete details.
+2. If profile is OK and running, the row label advertises `Pause monitoring`; selecting it closes the menu, pauses the profile, and future checks for that profile are skipped across restarts.
+3. If profile is OK (paused) because that profile was individually paused and global monitoring is enabled, the row label advertises `Resume monitoring`; selecting it closes the menu, resumes the profile, and future checks for that profile run again.
+4. If profile is Warning or Error, the row label advertises `Show details`; selecting it opens diagnostics and does not toggle monitoring.
+
+Global-pause path: when the first-row global control has paused monitoring, profile rows show explicit global-pause copy such as `OK (global pause)` and are disabled when no per-profile action is available. Persisted per-profile state is retained underneath, but the persisted global paused state takes visual and behavioral precedence until global monitoring is enabled again.
 
 Retention path: if incident evidence for the row has aged out or been evicted, dialog shows `Incident evidence unavailable: retention window exceeded.` instead of silently omitting evidence context.
 
@@ -146,7 +155,7 @@ Retention path: if incident evidence for the row has aged out or been evicted, d
 1. When tracked SSO profiles exceed 40, profile rows are grouped into deterministic submenus with range labels (`Profiles 1-20`, `Profiles 21-40`, ...).
 2. Profile names are sorted case-insensitive alphabetically before grouping.
 3. User opens a submenu and selects a profile row.
-4. Row behavior remains unchanged: OK closes menu; Warning/Error opens diagnostics.
+4. Row behavior remains unchanged: actionable OK rows toggle per-profile monitoring, Warning/Error rows open diagnostics, and rows with no current action are visibly disabled.
 5. During scheduler-overrun coalescing, grouping/order remains stable and diagnostics actions remain reachable.
 
 Failure path: if performance target is missed at high cardinality, this is treated as UX regression against acceptance criteria.
@@ -168,7 +177,7 @@ Preflight tray-host failure is a startup halt path; in that path tray surfaces a
 | CLI command surface | Help/version/check-only/log-level/log-format not requested | N/A - command parsing is immediate | Invalid argument/value (including unsupported `--log-level` or `--log-format`) prints actionable parse error and non-zero exit | `--help`, `--version`/`-V`, successful `--check-only`, valid `--log-level`/`--log-format`, and deterministic config+CLI precedence produce expected behavior and `0` semantics | N/A - represented via command failure text | N/A - represented via preflight/command failure text |
 | System tray icon | N/A - icon appears after app init | `normal` while startup discovery/check is running | `error` for global failure or profile-level blocking issue | `working` when monitoring is active and healthy; `paused` when paused; `warning` for non-blocking warning states | N/A - permission outcomes shown as command errors | N/A - offline represented as command failures |
 | Global control row | N/A - row always exists | Toggle row disabled during transient startup/sync operations (label reflects monitoring state) | Error action replacing toggle when a global blocking condition is active (unavailable/broken AWS CLI, unsupported AWS CLI version, invalid config, config trust-policy violation). Clicking it closes the menu and opens a diagnostics dialog | `Pause Monitoring` when monitoring enabled, `Resume Monitoring` when monitoring disabled (including intentional safe-mode pause). Clicking it closes the menu and toggles monitoring | N/A - permission issues surfaced via error action | N/A - offline surfaced via error action |
-| Profile status row | N/A - row exists only for discovered SSO profile | `Profile: <name> - Syncing...` while check or login result is pending | `Profile: <name> - Error: <short reason>` and row is clickable; timeout uses explicit `Command timed out` reason | `Profile: <name> - OK, last refresh: <duration>` or `Profile: <name> - OK (paused)` | `Profile: <name> - Error: Access denied` with clickable details | `Profile: <name> - Warning: Connectivity issue` with clickable details; unknown-classifier failures do not imply auto-login |
+| Profile status row | N/A - row exists only for discovered SSO profile | `<name> - Syncing...` and row is disabled while no direct action is available | `<name> - Error -> Show details` and row is clickable; timeout uses explicit `Command timed out` reason in diagnostics | `<name> - OK -> Pause monitoring`, `<name> - OK (paused) -> Resume monitoring`, or `<name> - OK (global pause)` when global pause blocks per-profile actions | `<name> - Error -> Show details` with access-denied diagnostics | `<name> - Warning -> Show details` with connectivity diagnostics; unknown-classifier failures do not imply auto-login |
 | Profile overflow submenu | N/A - not shown when tracked profiles <= 40 | N/A - container does not represent command state | N/A - error states remain on individual profile rows | Visible and selectable only when tracked profiles > 40; labels are deterministic range buckets | N/A - permission outcomes stay on profile rows | N/A - offline outcomes stay on profile rows |
 | Error details dialog | Not shown | Optional brief `Loading diagnostics...` only if data assembly is asynchronous | Shows structured details in order: Summary, Incident evidence, Command, Exit code, stderr, stdout, Timestamp; Summary class is explicit (`AWS CLI unavailable`, `AWS CLI v2 required`, `Configuration version unsupported`, `Configuration invalid`, `Configuration file trust policy failed`, `Browser wrapper execution failed`) and includes explicit stream truncation/omitted-byte notices when caps are hit. Incident evidence block includes retention bounds (latest 50 incidents, max 24h); if evidence is unavailable, show explicit `retention window exceeded` notice. **Configuration errors** (e.g., `No SSO profiles detected`) show simplified view with Summary and Context only, without command-related fields or incident evidence. | N/A - not opened for OK states | Shows permission-specific diagnostics details | Shows connectivity/offline diagnostics details |
 | Quit row | N/A - row always exists | N/A | N/A | Executes graceful shutdown | N/A | N/A |

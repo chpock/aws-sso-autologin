@@ -60,6 +60,19 @@ class TestStatusWindowProxy:
         assert "test-profile" in proxy._profiles
         assert proxy._table.rowCount() == 1
 
+    def test_update_profile_shows_paused_ok_when_profile_monitoring_paused(self, qapp):
+        proxy = StatusWindowProxy()
+        proxy.ensure_window()
+
+        status = ProfileStatus(
+            profile_name="test-profile",
+            state=ProfileState.OK,
+            monitoring_enabled=False,
+        )
+        proxy.update_profile(status)
+
+        assert proxy._table.item(0, 1).text() == "OK (paused)"
+
     def test_remove_profile_deletes_from_table(self, qapp):
         proxy = StatusWindowProxy()
         proxy.ensure_window()
@@ -227,7 +240,7 @@ def test_status_tray_profile_row_copy_ok(qapp):
     labels = [
         a.text() for a in tray.tray_icon.contextMenu().actions() if not a.isSeparator()
     ]
-    assert any(label.startswith("Profile: alpha - OK") for label in labels)
+    assert "alpha - OK -> Pause monitoring" in labels
     tray.close()
 
 
@@ -249,23 +262,132 @@ def test_status_tray_profile_row_copy_warning_and_error(qapp):
     labels = [
         a.text() for a in tray.tray_icon.contextMenu().actions() if not a.isSeparator()
     ]
-    assert "Profile: warn - Warning" in labels
-    assert "Profile: err - Error" in labels
+    assert "warn - Warning -> Show details" in labels
+    assert "err - Error -> Show details" in labels
     tray.close()
 
 
 def test_status_tray_ok_profile_click_closes_menu_no_dialog(qapp):
     on_diagnostics = MagicMock()
-    tray = StatusTray(on_show_diagnostics=on_diagnostics)
+    on_toggle_profile = MagicMock()
+    tray = StatusTray(
+        on_show_diagnostics=on_diagnostics,
+        on_toggle_profile_monitoring=on_toggle_profile,
+    )
     tray.update_profile(ProfileStatus(profile_name="ok", state=ProfileState.OK))
 
     actions = tray.tray_icon.contextMenu().actions()
-    ok_action = next(
-        action for action in actions if action.text().startswith("Profile: ok")
-    )
+    ok_action = next(action for action in actions if action.text().startswith("ok - "))
     ok_action.trigger()
+    qapp.processEvents()
 
     on_diagnostics.assert_not_called()
+    on_toggle_profile.assert_called_once_with("ok", False)
+    tray.close()
+
+
+def test_status_tray_paused_profile_click_resumes_profile(qapp):
+    on_toggle_profile = MagicMock()
+    tray = StatusTray(on_toggle_profile_monitoring=on_toggle_profile)
+    tray.update_profile(
+        ProfileStatus(
+            profile_name="ok",
+            state=ProfileState.OK,
+            monitoring_enabled=False,
+        )
+    )
+
+    labels = [
+        a.text() for a in tray.tray_icon.contextMenu().actions() if not a.isSeparator()
+    ]
+    assert "ok - OK (paused) -> Resume monitoring" in labels
+
+    action = next(
+        action
+        for action in tray.tray_icon.contextMenu().actions()
+        if "ok" in action.text()
+    )
+    action.trigger()
+    qapp.processEvents()
+
+    on_toggle_profile.assert_called_once_with("ok", True)
+    assert tray._profiles["ok"].state is ProfileState.SYNCING
+    assert tray._profiles["ok"].monitoring_enabled is True
+    tray._rebuild_menu()
+    labels = [
+        a.text() for a in tray.tray_icon.contextMenu().actions() if not a.isSeparator()
+    ]
+    assert "ok - Syncing..." in labels
+    tray.close()
+
+
+def test_status_tray_toggle_failure_keeps_existing_profile_state(qapp):
+    on_toggle_profile = MagicMock(side_effect=RuntimeError("state write failed"))
+    tray = StatusTray(on_toggle_profile_monitoring=on_toggle_profile)
+    tray.update_profile(ProfileStatus(profile_name="ok", state=ProfileState.OK))
+
+    action = next(
+        action
+        for action in tray.tray_icon.contextMenu().actions()
+        if action.text().startswith("ok - ")
+    )
+    action.trigger()
+    qapp.processEvents()
+
+    on_toggle_profile.assert_called_once_with("ok", False)
+    assert tray._profiles["ok"].monitoring_enabled is True
+    tray.close()
+
+
+def test_status_tray_global_pause_profile_click_does_not_persist_profile_pause(qapp):
+    on_toggle_profile = MagicMock()
+    tray = StatusTray(on_toggle_profile_monitoring=on_toggle_profile)
+    tray.set_initialized(True)
+    tray.update_profile(ProfileStatus(profile_name="ok", state=ProfileState.OK))
+    tray.set_monitoring_enabled(False)
+
+    labels = [
+        a.text() for a in tray.tray_icon.contextMenu().actions() if not a.isSeparator()
+    ]
+    assert "ok - OK (global pause)" in labels
+
+    action = next(
+        action
+        for action in tray.tray_icon.contextMenu().actions()
+        if action.text().startswith("ok - ")
+    )
+    assert action.isEnabled() is False
+    action.trigger()
+    qapp.processEvents()
+
+    on_toggle_profile.assert_not_called()
+    assert tray._profiles["ok"].monitoring_enabled is True
+    tray.close()
+
+
+def test_status_tray_profile_row_uses_distinct_paused_icon(qapp):
+    tray = StatusTray()
+    tray.update_profile(ProfileStatus(profile_name="running", state=ProfileState.OK))
+    tray.update_profile(
+        ProfileStatus(
+            profile_name="paused",
+            state=ProfileState.OK,
+            monitoring_enabled=False,
+        )
+    )
+
+    running_action = next(
+        action
+        for action in tray.tray_icon.contextMenu().actions()
+        if action.text().startswith("running - ")
+    )
+    paused_action = next(
+        action
+        for action in tray.tray_icon.contextMenu().actions()
+        if action.text().startswith("paused - ")
+    )
+
+    assert running_action.icon().cacheKey() != paused_action.icon().cacheKey()
     tray.close()
 
 
@@ -289,11 +411,32 @@ def test_status_tray_error_profile_click_opens_dialog(qapp):
 
     actions = tray.tray_icon.contextMenu().actions()
     broken_action = next(
-        action for action in actions if action.text().startswith("Profile: broken")
+        action for action in actions if action.text().startswith("broken - ")
     )
     broken_action.trigger()
 
     on_diagnostics.assert_called_once()
+    tray.close()
+
+
+def test_status_tray_error_profile_does_not_toggle_profile_monitoring(qapp):
+    on_diagnostics = MagicMock()
+    on_toggle_profile = MagicMock()
+    tray = StatusTray(
+        on_show_diagnostics=on_diagnostics,
+        on_toggle_profile_monitoring=on_toggle_profile,
+    )
+    tray.update_profile(ProfileStatus(profile_name="broken", state=ProfileState.ERROR))
+
+    action = next(
+        action
+        for action in tray.tray_icon.contextMenu().actions()
+        if action.text().startswith("broken - ")
+    )
+    action.trigger()
+
+    on_diagnostics.assert_called_once()
+    on_toggle_profile.assert_not_called()
     tray.close()
 
 
@@ -334,7 +477,7 @@ def test_status_tray_profile_update_refreshes_existing_label(qapp):
     labels = [
         a.text() for a in tray.tray_icon.contextMenu().actions() if not a.isSeparator()
     ]
-    assert "Profile: alpha - Error" in labels
+    assert "alpha - Error -> Show details" in labels
 
     tray.close()
 
@@ -550,7 +693,7 @@ def test_status_tray_default_diagnostics_opens_dialog(qapp):
     warning_action = next(
         action
         for action in tray.tray_icon.contextMenu().actions()
-        if action.text().startswith("Profile: warning-profile")
+        if action.text().startswith("warning-profile - ")
     )
     warning_action.trigger()
 

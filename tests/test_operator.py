@@ -130,6 +130,21 @@ def test_health_operator_callback_exception_does_not_break_check_loop():
     operator._check_all_profiles()
 
 
+def test_health_operator_skips_paused_profiles():
+    mock_checker = MagicMock()
+    mock_checker.get_session_info.return_value = SessionInfo(
+        profile_name="dev",
+        is_active=True,
+    )
+
+    operator = HealthOperator(checker=mock_checker)
+    operator.register_profiles([ProfileConfig(name="dev")])
+    operator.set_profile_monitoring_enabled("dev", False)
+    operator._check_all_profiles()
+
+    mock_checker.get_session_info.assert_not_called()
+
+
 def test_health_operator_start_stop():
     """Test starting and stopping the operator."""
     operator = HealthOperator()

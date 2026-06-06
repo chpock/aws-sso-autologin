@@ -42,6 +42,7 @@ from aws_sso_autologin.service import (
     detect_tray_host,
 )
 from aws_sso_autologin.settings import RuntimeSettingsResolver
+from aws_sso_autologin.state import AppStateStore, MemoryStateStore, StateStore
 from aws_sso_autologin.tray import (
     ErrorDetailsDialog,
     ProfileState,
@@ -154,12 +155,14 @@ class AutologinApp:
         self,
         args: list[str] | None = None,
         profile_browsers: dict[str, Any] | None = None,
+        state_store: StateStore | None = None,
     ) -> None:
         """Initialize the autologin application.
 
         Args:
             args: Command line arguments (defaults to sys.argv)
             profile_browsers: Per-profile browser configuration from settings.
+            state_store: Runtime state store. Defaults to in-memory for tests.
         """
         self._args = args or sys.argv
         self._app: QApplication | None = None
@@ -184,12 +187,27 @@ class AutologinApp:
             os.getenv("AWS_SSO_AUTOLOGIN_TRAY_LOSS_BEHAVIOR", "pause").strip().lower()
         )
         self._details_dialog: Any | None = None
-        self._monitoring_enabled = True
         self._profile_status: dict[str, ProfileStatus] = {}
         self._last_diagnostics_params: tuple[str, str, bool] | None = None
         self._profile_browsers: dict[str, Any] = profile_browsers or {}
+        self._state_store = state_store or MemoryStateStore()
+        self._monitoring_enabled = self._resolve_initial_monitoring_enabled()
 
         logger.debug("AutologinApp: Initialized")
+
+    @staticmethod
+    def _safe_mode_requested() -> bool:
+        return os.getenv("AWS_SSO_AUTOLOGIN_SAFE_MODE", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+    def _resolve_initial_monitoring_enabled(self) -> bool:
+        if self._safe_mode_requested():
+            return False
+        return self._state_store.is_global_monitoring_enabled()
 
     def _initialize_qt(self) -> bool:
         """Initialize QApplication.
@@ -242,7 +260,9 @@ class AutologinApp:
         """
         try:
             self._tray = StatusTray(
+                monitoring_enabled=self._monitoring_enabled,
                 on_toggle_monitoring=self._on_toggle_monitoring,
+                on_toggle_profile_monitoring=self._on_toggle_profile_monitoring,
                 on_quit=self.shutdown,
                 on_show_diagnostics=self._on_show_diagnostics,
             )
@@ -325,8 +345,13 @@ class AutologinApp:
             )
             return
 
+        self._monitoring_enabled = False
+        if self._health_operator is not None:
+            self._health_operator.stop()
+        if self._tray_host_timer is not None:
+            self._tray_host_timer.stop()
         if self._tray is not None:
-            self._tray.set_monitoring_enabled(False)
+            self._tray.set_monitoring_enabled(False, notify_callback=False)
 
         logger.error("Tray host lost; monitoring paused")
 
@@ -386,6 +411,7 @@ class AutologinApp:
             return ProfileStatus(
                 profile_name=profile_name,
                 state=ProfileState.OK,
+                monitoring_enabled=self._is_profile_monitoring_enabled(profile_name),
                 short_reason=None,
                 last_login_time=datetime.now(),
             )
@@ -397,6 +423,7 @@ class AutologinApp:
             return ProfileStatus(
                 profile_name=profile_name,
                 state=ProfileState.SYNCING,
+                monitoring_enabled=self._is_profile_monitoring_enabled(profile_name),
                 short_reason="Re-authentication in progress",
                 diagnostics_summary="Session expired or invalid",
                 diagnostics_details=self._build_diagnostics_details(session_info),
@@ -407,6 +434,7 @@ class AutologinApp:
         base_status = base_status.apply_event(event)
         return replace(
             base_status,
+            monitoring_enabled=self._is_profile_monitoring_enabled(profile_name),
             short_reason=self._reason_for_session(session_info),
             diagnostics_summary=self._summary_for_session(session_info),
             diagnostics_details=self._build_diagnostics_details(session_info),
@@ -467,6 +495,12 @@ class AutologinApp:
             current = self._profile_status.get(profile_name)
             if (
                 current is not None
+                and not current.monitoring_enabled
+                and current.state is ProfileState.OK
+            ):
+                status = replace(current, monitoring_enabled=False)
+            elif (
+                current is not None
                 and current.state is ProfileState.ERROR
                 and not session_info.is_active
             ):
@@ -519,7 +553,25 @@ class AutologinApp:
 
     def _on_toggle_monitoring(self, enabled: bool) -> None:
         """Handle first-row enable/disable action from tray menu."""
+        previous_enabled = self._monitoring_enabled
+        previous_awaiting_initial_status = self._awaiting_initial_status
+
+        try:
+            self._apply_runtime_monitoring_state(enabled)
+            self._state_store.set_global_monitoring_enabled(enabled)
+        except Exception:
+            self._awaiting_initial_status = previous_awaiting_initial_status
+            if enabled != previous_enabled:
+                self._rollback_runtime_monitoring_state(previous_enabled)
+            raise
+
         self._monitoring_enabled = enabled
+        self._awaiting_initial_status = enabled and any(
+            self._is_profile_monitoring_enabled(config.name)
+            for config in self._profiles
+        )
+
+    def _apply_runtime_monitoring_state(self, enabled: bool) -> None:
         if self._health_operator is None:
             return
 
@@ -527,12 +579,84 @@ class AutologinApp:
             self._health_operator.start()
             if self._tray_host_timer is not None:
                 self._tray_host_timer.start()
-            self._awaiting_initial_status = True
             return
 
         self._health_operator.stop()
         if self._tray_host_timer is not None:
             self._tray_host_timer.stop()
+
+    def _rollback_runtime_monitoring_state(self, enabled: bool) -> None:
+        try:
+            self._apply_runtime_monitoring_state(enabled)
+        except Exception as exc:
+            logger.error(
+                "failed to roll back runtime monitoring state after toggle error",
+                extra={
+                    "event": "monitoring_toggle_rollback_failed",
+                    "monitoring_enabled": enabled,
+                    "error": str(exc),
+                },
+            )
+
+    def _on_toggle_profile_monitoring(self, profile_name: str, enabled: bool) -> None:
+        """Handle persisted per-profile monitoring toggle from tray menu."""
+        status = self._profile_status.get(profile_name)
+        previous_enabled = (
+            status.monitoring_enabled
+            if status is not None
+            else self._is_profile_monitoring_enabled(profile_name)
+        )
+
+        try:
+            if self._health_operator is not None:
+                self._health_operator.set_profile_monitoring_enabled(
+                    profile_name, enabled
+                )
+            self._state_store.set_profile_monitoring_enabled(profile_name, enabled)
+        except Exception:
+            if self._health_operator is not None and enabled != previous_enabled:
+                self._rollback_profile_monitoring_state(profile_name, previous_enabled)
+            raise
+
+        status = self._profile_status.get(profile_name)
+        if status is not None:
+            updated_status = replace(status, monitoring_enabled=enabled)
+            if enabled and status.state is ProfileState.OK and not previous_enabled:
+                updated_status = replace(
+                    updated_status,
+                    state=ProfileState.SYNCING,
+                    short_reason="Refreshing status",
+                )
+            self._profile_status[profile_name] = updated_status
+        logger.info(
+            "profile monitoring toggled",
+            extra={
+                "event": "profile_monitoring_toggled",
+                "profile": profile_name,
+                "monitoring_enabled": enabled,
+            },
+        )
+
+    def _rollback_profile_monitoring_state(
+        self, profile_name: str, enabled: bool
+    ) -> None:
+        if self._health_operator is None:
+            return
+        try:
+            self._health_operator.set_profile_monitoring_enabled(profile_name, enabled)
+        except Exception as exc:
+            logger.error(
+                "failed to roll back profile monitoring state after toggle error",
+                extra={
+                    "event": "profile_monitoring_toggle_rollback_failed",
+                    "profile": profile_name,
+                    "monitoring_enabled": enabled,
+                    "error": str(exc),
+                },
+            )
+
+    def _is_profile_monitoring_enabled(self, profile_name: str) -> bool:
+        return self._state_store.is_profile_monitoring_enabled(profile_name)
 
     def _on_show_diagnostics(
         self, summary: str, details: str, is_config_error: bool = False
@@ -645,15 +769,32 @@ class AutologinApp:
             # Register profiles with health operator
             if self._health_operator:
                 self._health_operator.register_profiles(self._profiles)
+                for config in self._profiles:
+                    self._health_operator.set_profile_monitoring_enabled(
+                        config.name,
+                        self._is_profile_monitoring_enabled(config.name),
+                    )
 
             # Initialize tray with profiles
             if self._tray:
-                self._awaiting_initial_status = True
+                self._awaiting_initial_status = self._monitoring_enabled and any(
+                    self._is_profile_monitoring_enabled(config.name)
+                    for config in self._profiles
+                )
                 for config in self._profiles:
+                    monitoring_enabled = self._is_profile_monitoring_enabled(
+                        config.name
+                    )
                     status = ProfileStatus(
                         profile_name=config.name,
-                        state=ProfileState.SYNCING,
+                        state=(
+                            ProfileState.SYNCING
+                            if self._monitoring_enabled and monitoring_enabled
+                            else ProfileState.OK
+                        ),
+                        monitoring_enabled=monitoring_enabled,
                     )
+                    self._profile_status[config.name] = status
                     self._tray.update_profile(status)
 
             return True
@@ -732,18 +873,31 @@ class AutologinApp:
             logger.warning("No SSO profiles loaded; continuing in empty-state mode")
 
         # Start monitoring
-        if not self._start_monitoring():
-            self._set_tray_global_error(
-                summary=MONITORING_START_FAILED_SUMMARY,
-                details="Failed to start monitoring loop.",
-                source="startup-monitoring",
+        if self._monitoring_enabled:
+            if not self._start_monitoring():
+                self._set_tray_global_error(
+                    summary=MONITORING_START_FAILED_SUMMARY,
+                    details="Failed to start monitoring loop.",
+                    source="startup-monitoring",
+                )
+                logger.error("Health monitoring failed to start; exiting")
+                return 1
+        else:
+            logger.info(
+                "Application started with global monitoring paused",
+                extra={
+                    "event": "monitoring_start_paused",
+                    "source": (
+                        "safe_mode_override"
+                        if self._safe_mode_requested()
+                        else "persisted_state"
+                    ),
+                },
             )
-            logger.error("Health monitoring failed to start; exiting")
-            return 1
 
         self._start_signal_pump_timer()
 
-        if self._tray_host_timer is not None:
+        if self._monitoring_enabled and self._tray_host_timer is not None:
             self._tray_host_timer.start()
 
         if self._tray is not None and not self._awaiting_initial_status:
@@ -1055,6 +1209,7 @@ def main(args: list[str] | None = None) -> int:
     app = AutologinApp(
         ["aws-sso-autologin", *raw_args],
         profile_browsers=settings.profiles,
+        state_store=AppStateStore(),
     )
 
     logger.info(

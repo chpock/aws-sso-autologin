@@ -2,7 +2,9 @@
 
 import signal
 from io import StringIO
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock, call, patch
+
+import pytest
 
 
 def test_main_imports():
@@ -21,6 +23,34 @@ def test_autologin_app_initialization():
     assert app._session_operator is None
     assert app._login_operator is None
     assert app._profiles == []
+    assert app._monitoring_enabled is True
+    assert app._state_store.is_global_monitoring_enabled() is True
+    assert app._state_store.is_profile_monitoring_enabled("dev") is True
+
+
+def test_autologin_app_initialization_uses_persisted_global_pause_state():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.state import MemoryStateStore
+
+    state_store = MemoryStateStore()
+    state_store.set_global_monitoring_enabled(False)
+
+    app = AutologinApp([], state_store=state_store)
+
+    assert app._monitoring_enabled is False
+
+
+def test_autologin_app_safe_mode_overrides_persisted_global_state():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.state import MemoryStateStore
+
+    state_store = MemoryStateStore()
+    state_store.set_global_monitoring_enabled(True)
+
+    with patch.dict("os.environ", {"AWS_SSO_AUTOLOGIN_SAFE_MODE": "1"}, clear=False):
+        app = AutologinApp([], state_store=state_store)
+
+    assert app._monitoring_enabled is False
 
 
 def test_autologin_app_with_args():
@@ -641,8 +671,10 @@ def test_run_starts_signal_pump_timer_for_sigint_responsiveness():
 
 def test_tray_host_loss_pauses_monitoring_by_default():
     from aws_sso_autologin.__main__ import TRAY_HOST_LOST_SUMMARY, AutologinApp
+    from aws_sso_autologin.state import MemoryStateStore
 
-    app = AutologinApp([])
+    state_store = MemoryStateStore()
+    app = AutologinApp([], state_store=state_store)
     app._tray = Mock()
     app._tray_loss_behavior = "pause"
 
@@ -659,7 +691,11 @@ def test_tray_host_loss_pauses_monitoring_by_default():
     app._tray.set_global_error.assert_called_once()
     kwargs = app._tray.set_global_error.call_args.kwargs
     assert kwargs["summary"] == TRAY_HOST_LOST_SUMMARY
-    app._tray.set_monitoring_enabled.assert_called_once_with(False)
+    app._tray.set_monitoring_enabled.assert_called_once_with(
+        False, notify_callback=False
+    )
+    assert app._monitoring_enabled is False
+    assert state_store.is_global_monitoring_enabled() is True
 
 
 def test_tray_host_loss_continue_mode_keeps_monitoring():
@@ -860,6 +896,226 @@ def test_load_profiles_initializes_on_first_status_update():
     app._on_status_change("example", RenewalStatus.NOT_NEEDED, info)
     assert app._awaiting_initial_status is False
     app._tray.set_initialized.assert_called_with(True)
+
+
+def test_load_profiles_applies_persisted_profile_pause_state():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.state import MemoryStateStore
+    from aws_sso_autologin.tray import ProfileState
+
+    state_store = MemoryStateStore()
+    state_store.set_profile_monitoring_enabled("example", False)
+    app = AutologinApp([], state_store=state_store)
+    app._tray = Mock()
+    app._health_operator = Mock()
+
+    profile_info = Mock()
+    profile_info.name = "example"
+
+    with patch(
+        "aws_sso_autologin.__main__.discover_profiles", return_value=[profile_info]
+    ):
+        loaded = app._load_profiles()
+
+    assert loaded is True
+    app._health_operator.set_profile_monitoring_enabled.assert_called_once_with(
+        "example", False
+    )
+    status = app._tray.update_profile.call_args.args[0]
+    assert status.state is ProfileState.OK
+    assert status.monitoring_enabled is False
+    assert app._awaiting_initial_status is False
+
+
+def test_load_profiles_applies_persisted_global_pause_state():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.state import MemoryStateStore
+    from aws_sso_autologin.tray import ProfileState
+
+    state_store = MemoryStateStore()
+    state_store.set_global_monitoring_enabled(False)
+    app = AutologinApp([], state_store=state_store)
+    app._tray = Mock()
+    app._health_operator = Mock()
+
+    profile_info = Mock()
+    profile_info.name = "example"
+
+    with patch(
+        "aws_sso_autologin.__main__.discover_profiles", return_value=[profile_info]
+    ):
+        loaded = app._load_profiles()
+
+    assert loaded is True
+    app._health_operator.set_profile_monitoring_enabled.assert_called_once_with(
+        "example", True
+    )
+    status = app._tray.update_profile.call_args.args[0]
+    assert status.state is ProfileState.OK
+    assert status.monitoring_enabled is True
+    assert app._awaiting_initial_status is False
+
+
+def test_global_monitoring_toggle_persists_and_updates_runtime():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.models import ProfileConfig
+    from aws_sso_autologin.state import MemoryStateStore
+
+    state_store = MemoryStateStore()
+    app = AutologinApp([], state_store=state_store)
+    app._health_operator = Mock()
+    app._tray_host_timer = Mock()
+    app._profiles = [ProfileConfig(name="dev")]
+
+    app._on_toggle_monitoring(False)
+
+    assert state_store.is_global_monitoring_enabled() is False
+    assert app._monitoring_enabled is False
+    app._health_operator.stop.assert_called_once()
+    app._tray_host_timer.stop.assert_called_once()
+
+    app._on_toggle_monitoring(True)
+
+    assert state_store.is_global_monitoring_enabled() is True
+    assert app._monitoring_enabled is True
+    app._health_operator.start.assert_called_once()
+    app._tray_host_timer.start.assert_called_once()
+    assert app._awaiting_initial_status is True
+
+
+def test_global_monitoring_toggle_rolls_back_runtime_when_persistence_fails():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.models import ProfileConfig
+    from aws_sso_autologin.state import MemoryStateStore
+
+    class FailingGlobalStateStore(MemoryStateStore):
+        def set_global_monitoring_enabled(self, enabled: bool) -> None:
+            raise OSError("disk full")
+
+    state_store = FailingGlobalStateStore()
+    state_store._monitoring_enabled = False
+    app = AutologinApp([], state_store=state_store)
+    app._health_operator = Mock()
+    app._tray_host_timer = Mock()
+    app._profiles = [ProfileConfig(name="dev")]
+
+    with pytest.raises(OSError, match="disk full"):
+        app._on_toggle_monitoring(True)
+
+    app._health_operator.start.assert_called_once()
+    app._tray_host_timer.start.assert_called_once()
+    app._health_operator.stop.assert_called_once()
+    app._tray_host_timer.stop.assert_called_once()
+    assert state_store.is_global_monitoring_enabled() is False
+    assert app._monitoring_enabled is False
+    assert app._awaiting_initial_status is False
+
+
+def test_profile_monitoring_toggle_persists_and_updates_operator():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.state import MemoryStateStore
+    from aws_sso_autologin.tray import ProfileState, ProfileStatus
+
+    state_store = MemoryStateStore()
+    app = AutologinApp([], state_store=state_store)
+    app._health_operator = Mock()
+    app._profile_status["dev"] = ProfileStatus("dev", state=ProfileState.OK)
+
+    app._on_toggle_profile_monitoring("dev", False)
+
+    assert state_store.is_profile_monitoring_enabled("dev") is False
+    app._health_operator.set_profile_monitoring_enabled.assert_called_once_with(
+        "dev", False
+    )
+    assert app._profile_status["dev"].monitoring_enabled is False
+
+
+def test_profile_monitoring_resume_enters_syncing_until_fresh_status_arrives():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.state import MemoryStateStore
+    from aws_sso_autologin.tray import ProfileState, ProfileStatus
+
+    state_store = MemoryStateStore()
+    state_store.set_profile_monitoring_enabled("dev", False)
+    app = AutologinApp([], state_store=state_store)
+    app._health_operator = Mock()
+    app._profile_status["dev"] = ProfileStatus(
+        "dev",
+        state=ProfileState.OK,
+        monitoring_enabled=False,
+    )
+
+    app._on_toggle_profile_monitoring("dev", True)
+
+    assert state_store.is_profile_monitoring_enabled("dev") is True
+    app._health_operator.set_profile_monitoring_enabled.assert_called_once_with(
+        "dev", True
+    )
+    assert app._profile_status["dev"].monitoring_enabled is True
+    assert app._profile_status["dev"].state is ProfileState.SYNCING
+
+
+def test_profile_monitoring_toggle_rolls_back_runtime_when_persistence_fails():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.state import MemoryStateStore
+    from aws_sso_autologin.tray import ProfileState, ProfileStatus
+
+    class FailingProfileStateStore(MemoryStateStore):
+        def set_profile_monitoring_enabled(
+            self, profile_name: str, enabled: bool
+        ) -> None:
+            raise OSError("disk full")
+
+    state_store = FailingProfileStateStore()
+    app = AutologinApp([], state_store=state_store)
+    app._health_operator = Mock()
+    app._profile_status["dev"] = ProfileStatus(
+        "dev", state=ProfileState.OK, monitoring_enabled=True
+    )
+
+    with pytest.raises(OSError, match="disk full"):
+        app._on_toggle_profile_monitoring("dev", False)
+
+    assert app._health_operator.set_profile_monitoring_enabled.call_args_list == [
+        call("dev", False),
+        call("dev", True),
+    ]
+    assert state_store.is_profile_monitoring_enabled("dev") is True
+    assert app._profile_status["dev"].monitoring_enabled is True
+
+
+def test_on_status_change_preserves_paused_profile_resume_path():
+    from aws_sso_autologin.__main__ import AutologinApp
+    from aws_sso_autologin.models import SessionFailureType, SessionInfo
+    from aws_sso_autologin.operator import RenewalStatus
+    from aws_sso_autologin.tray import ProfileState, ProfileStatus
+
+    app = AutologinApp([])
+    app._tray = Mock()
+    app._tray.current_icon_state = "paused"
+    app._profile_status["dev"] = ProfileStatus(
+        "dev",
+        state=ProfileState.OK,
+        monitoring_enabled=False,
+    )
+
+    app._on_status_change(
+        "dev",
+        RenewalStatus.UNKNOWN,
+        SessionInfo(
+            profile_name="dev",
+            is_active=False,
+            failure_type=SessionFailureType.OTHER,
+            error_message="Connectivity issue",
+        ),
+    )
+
+    assert app._profile_status["dev"].state is ProfileState.OK
+    assert app._profile_status["dev"].monitoring_enabled is False
+
+    updated = app._tray.update_profile.call_args.args[0]
+    assert updated.state is ProfileState.OK
+    assert updated.monitoring_enabled is False
 
 
 def test_on_show_diagnostics_displays_error_dialog():

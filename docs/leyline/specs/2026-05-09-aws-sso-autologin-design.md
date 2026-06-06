@@ -18,6 +18,11 @@ Product spec approved - round 11 - 2026-05-09
 Product spec approved - round 12 - 2026-05-10
 Product spec approved - round 13 - 2026-05-11
 Product spec approved - round 14 - 2026-05-31
+Product spec approved - round 15 - 2026-06-05
+Product spec approved - round 16 - 2026-06-06
+Product spec approved - round 17 - 2026-06-06
+Product spec approved - round 18 - 2026-06-06
+Product spec approved - round 19 - 2026-06-06
 
 ## Problem
 Users with multiple AWS SSO profiles lose active sessions during normal work and must manually run `aws sso login` per profile. This tool should run as a tray-only Linux/Wayland desktop app, monitor SSO session validity, and perform controlled auto-login when an SSO session is explicitly expired or invalid.
@@ -59,7 +64,7 @@ Users with multiple AWS SSO profiles lose active sessions during normal work and
 - Right-click tray menu must include:
   - first item: status-dependent action — when a global error is active, an error action that opens a diagnostics dialog; otherwise a monitoring toggle (`Pause Monitoring` or `Resume Monitoring`). Clicking any first-item action closes the menu,
   - separator,
-  - one entry per tracked SSO profile with `Profile: <name> - <status>`,
+  - one entry per tracked SSO profile with `<name> - <status>`,
   - separator,
   - `Quit`.
 - At high profile cardinality, tray-menu scalability rules apply:
@@ -67,12 +72,19 @@ Users with multiple AWS SSO profiles lose active sessions during normal work and
   - when tracked SSO profiles exceed 40, profile rows are grouped into deterministic overflow submenus of at most 20 rows each,
   - each tracked SSO profile still maps to exactly one selectable row with unchanged row format.
 - When AWS CLI is globally unavailable or profile discovery fails in a global way, replace the first toggle item with an explicit error item; clicking it closes the menu and opens a detailed error dialog.
+- Tray profile row UX contract is mandatory:
+  - row text must show both the current state and the action that will happen on selection when the row is actionable,
+  - healthy actionable examples: `<name> - OK -> Pause monitoring` and `<name> - OK (paused) -> Resume monitoring`,
+  - warning/error examples: `<name> - Warning -> Show details` and `<name> - Error -> Show details`,
+  - if no per-profile action is currently available (for example while global monitoring is paused or a row is syncing), the row must use explicit state copy and be visibly disabled.
 - When monitoring is disabled by user:
   - stop all background activity,
   - do not run session checks,
   - do not watch files,
-  - profile rows show OK with paused note.
-- Monitoring enabled/disabled state is not persisted across restarts.
+  - profile rows show explicit global-pause copy and no per-profile toggle action.
+- Global monitoring enabled/paused state is persisted across restarts.
+- Per-profile monitoring paused/running state is persisted across restarts.
+- Persisted global pause takes precedence over every per-profile state until global monitoring is resumed.
 - Tray icon semantic set is fixed to: `working`, `paused`, `error`, `warning`, `normal`.
 - Status precedence is fixed to: `global error > profile error > warning > paused > working`. The `normal` icon is shown only at startup before the first status cycle completes.
 - Command execution must capture stdout and stderr for diagnostics and enforce timeout/cancellation policy.
@@ -174,7 +186,8 @@ Implement Approach A. It matches current requirements with the best complexity-t
 - Global profile-discovery retry interval when AWS CLI is unavailable is fixed to 30 seconds.
 
 ### Session checking and login
-- Every 30 seconds run `aws sts get-caller-identity --profile <profile>` for each tracked SSO profile.
+- Every 30 seconds run `aws sts get-caller-identity --profile <profile>` for each tracked SSO profile whose per-profile monitoring state is running.
+- Profiles with per-profile monitoring paused are skipped by scheduled and forced checks until resumed.
 - `sts_check` subprocess concurrency is capped at 8 in-flight processes globally.
 - Concurrency cap vs cadence validation: at 100 profiles, 30-second cycle, and 8-process cap, average per-check duration must not exceed 240 ms to maintain cadence,
 - Per-check latency telemetry is mandatory: record `sts_check` duration per profile; if p95 per-check duration exceeds (30s × 8 ÷ profile_count), trigger observability alert `sts_check_capacity_exceeded` for capacity planning review.
@@ -205,6 +218,38 @@ Implement Approach A. It matches current requirements with the best complexity-t
   - when active work completes, run one coalesced cycle immediately,
   - additional missed ticks are collapsed rather than replayed,
   - pause/disable clears pending coalesced work and blocks new starts.
+
+### Persistent runtime state
+- Persist global and per-profile monitoring state in JSON at `$XDG_STATE_HOME/aws-sso-autologin/state.json`.
+- If `XDG_STATE_HOME` is unset, use `~/.local/state/aws-sso-autologin/state.json`.
+- State schema version `1` is future-extensible and stores profile records under `profiles`:
+
+```json
+{
+  "schema_version": 1,
+  "global": {
+    "monitoring": "paused",
+    "updated_at": "2026-06-06T12:00:00Z"
+  },
+  "profiles": {
+    "dev": {
+      "monitoring": "paused",
+      "updated_at": "2026-06-05T12:00:00Z"
+    }
+  }
+}
+```
+
+- The top-level `global.monitoring` value controls whether background monitoring starts after restart.
+- Valid `monitoring` values are `running` and `paused`; missing or unknown values default to running.
+- When top-level global monitoring is `paused`, all profiles are treated as effectively paused regardless of individual per-profile values.
+- Missing, invalid, corrupt, or unsupported-schema state files log a warning and are treated as empty state.
+- State directory permissions must be owner-only (`0700`), and state file permissions must be owner read/write (`0600`).
+- State writes must be atomic via a temporary file in the same directory followed by replace.
+- The state path must not follow symlinks in the state file or any existing parent directory; symlinked state-path components are ignored on read and refused on write.
+- Orphaned profile state entries for profiles that are no longer discovered are retained for future reuse.
+- Safe mode remains a runtime override for the current launch and does not silently rewrite the persisted global monitoring preference.
+- Normal application tests must not read or write the real user state path; tests use in-memory state or temporary paths.
 
 ### System signal handling
 - The runtime installs explicit handlers for `SIGINT` and `SIGTERM` after Qt initialization.

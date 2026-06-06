@@ -13,6 +13,8 @@ A Linux system tray application that monitors AWS SSO sessions and automatically
 - **Serial Login Queue**: Ensures login attempts run strictly one at a time to prevent AWS rate limiting and browser conflicts
 - **Per-Profile Login Lock**: 5-minute cooldown between login attempts per profile to prevent thrashing
 - **Profile Discovery**: Automatically discovers and monitors all SSO-enabled AWS profiles from your AWS config
+- **Persistent Global Pause**: Preserve the top-level monitoring enabled/paused state across restarts, with global pause taking precedence over all profile states
+- **Persistent Per-Profile Pause**: Pause or resume individual OK profiles from the tray menu, with state preserved across restarts
 - **High Cardinality Support**: Supports up to 100 profiles with deterministic overflow submenus when tracked profiles exceed 40 (chunks of 20)
 - **Memory-Bounded Log Classification**: ROT13-obfuscated pattern corpus for secure log analysis with 48 KiB per stream budget
 - **Tray Host Detection**: Automatically detects and adapts to GNOME, KDE, XFCE, MATE, Cinnamon, and other Linux desktop environments
@@ -86,7 +88,11 @@ Once running, the application appears in your system tray:
 ### Menu Options
 
 - **Global control row**: Toggle monitoring or open blocking startup/sync diagnostics
-- **Profile list**: Shows all monitored SSO profiles with state-matrix copy (`Syncing`, `Warning`, `Error`, `OK`, `OK (paused)`)
+- **Profile list**: Shows current profile state and the next action together in the row label
+  - Example active row: `dev - OK -> Pause monitoring`
+  - Example paused row: `dev - OK (paused) -> Resume monitoring`
+  - Example diagnostics row: `dev - Error -> Show details`
+  - While global monitoring is paused, rows with no per-profile action show explicit global-pause copy and are visually disabled
   - Profiles overflow into deterministic submenus when count exceeds 40
   - Overflow bucket size is 20 profiles per submenu
 - **Quit**: Gracefully shutdown the application
@@ -248,6 +254,18 @@ profiles:
 - `AWS_SSO_AUTOLOGIN_SAFE_MODE`: Start in safe mode with monitoring disabled (set to `1`)
 - `AWS_SSO_AUTOLOGIN_TRAY_LOSS_BEHAVIOR`: Tray host loss behavior (`pause|continue`)
 - `DESKTOP_SESSION` / `XDG_CURRENT_DESKTOP`: Used for tray host detection
+
+### State File
+
+Global and per-profile paused/running state are persisted in a JSON state file:
+
+- Preferred path: `$XDG_STATE_HOME/aws-sso-autologin/state.json`
+- Fallback path: `~/.local/state/aws-sso-autologin/state.json`
+- Schema: versioned JSON with a top-level `global` section plus profile entries under `profiles`, designed for future state values
+- Permissions: state directory `0700`, state file `0600`
+- Safety: symlink state files are ignored/refused, and writes are atomic
+
+When global monitoring is paused, it takes precedence over all per-profile states until resumed. Safe mode is still a runtime-only override for that run. Tests use in-memory or temporary state, so your normal state file does not affect test runs.
 
 ## Troubleshooting
 

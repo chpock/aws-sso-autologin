@@ -61,6 +61,7 @@ class ProfileStatus:
     diagnostics_summary: str | None = None
     diagnostics_details: str | None = None
     confirmation_pending: bool = False
+    monitoring_enabled: bool = True
 
     # Backward-compatible fields used by early scaffolding tests/code.
     is_logged_in: bool | None = None
@@ -220,7 +221,9 @@ class StatusWindowProxy:
         if status.state == ProfileState.SYNCING:
             return QTableWidgetItem("Syncing...")
 
-        if status.state == ProfileState.PAUSED_OK:
+        if status.state == ProfileState.PAUSED_OK or (
+            status.state == ProfileState.OK and not status.monitoring_enabled
+        ):
             return QTableWidgetItem("OK (paused)")
 
         item = QTableWidgetItem("OK")
@@ -570,13 +573,15 @@ class StatusTray:
     def __init__(
         self,
         parent: QWidget | None = None,
+        monitoring_enabled: bool = True,
         on_toggle_monitoring: Callable[[bool], None] | None = None,
+        on_toggle_profile_monitoring: Callable[[str, bool], None] | None = None,
         on_quit: Callable[[], None] | None = None,
-        on_show_diagnostics: Callable[[str, str], None] | None = None,
+        on_show_diagnostics: Callable[[str, str, bool], None] | None = None,
     ) -> None:
         self._parent = parent
         self._profiles: dict[str, ProfileStatus] = {}
-        self._monitoring_enabled = True
+        self._monitoring_enabled = monitoring_enabled
         self._initialized = False
         self._global_error_summary: str | None = None
         self._global_error_details: str = ""
@@ -587,6 +592,7 @@ class StatusTray:
         self.current_icon_state = "normal"
 
         self._on_toggle_monitoring = on_toggle_monitoring
+        self._on_toggle_profile_monitoring = on_toggle_profile_monitoring
         self._on_quit = on_quit
         self._on_show_diagnostics = on_show_diagnostics
         self._state_icons = self._build_state_icons()
@@ -606,10 +612,12 @@ class StatusTray:
         self._update_icon_state()
         self._update_tooltip()
 
-    def set_monitoring_enabled(self, enabled: bool) -> None:
+    def set_monitoring_enabled(
+        self, enabled: bool, *, notify_callback: bool = True
+    ) -> None:
         """Set monitoring state and refresh control row/icon state."""
         self._monitoring_enabled = enabled
-        if self._on_toggle_monitoring is not None:
+        if notify_callback and self._on_toggle_monitoring is not None:
             self._on_toggle_monitoring(enabled)
         self._rebuild_menu()
         self._update_icon_state()
@@ -790,6 +798,9 @@ class StatusTray:
         if not self._monitoring_enabled:
             return "paused"
 
+        if states and all(state is ProfileState.PAUSED_OK for state in states):
+            return "paused"
+
         # All good
         return "working"
 
@@ -833,9 +844,21 @@ class StatusTray:
     def _apply_toggle(self, target: bool) -> None:
         if self.tray_icon is None:
             return
+        try:
+            if self._on_toggle_monitoring is not None:
+                self._on_toggle_monitoring(target)
+        except Exception as exc:
+            logger.warning(
+                "global monitoring toggle failed; leaving tray state unchanged",
+                extra={
+                    "event": "monitoring_toggle_failed",
+                    "monitoring_enabled": target,
+                    "error": str(exc),
+                },
+            )
+            return
+
         self._monitoring_enabled = target
-        if self._on_toggle_monitoring is not None:
-            self._on_toggle_monitoring(target)
         self._update_icon_state()
         self._throttled_tooltip_update()
         QTimer.singleShot(200, self._rebuild_menu)
@@ -884,6 +907,7 @@ class StatusTray:
             status = self._profiles[name]
             action = QAction(self._format_profile_label(status), menu)
             action.setIcon(self._icon_for_state(self._effective_state(status)))
+            action.setEnabled(self._is_profile_actionable(status))
             action.triggered.connect(
                 lambda checked=False, profile_name=name: self._on_profile_selected(
                     profile_name
@@ -914,7 +938,51 @@ class StatusTray:
             self._emit_diagnostics(summary, details)
             return
 
-        self._menu.hide()
+        effective = self._effective_state(status)
+        if (
+            effective in (ProfileState.OK, ProfileState.PAUSED_OK)
+            and self._monitoring_enabled
+        ):
+            target = not status.monitoring_enabled
+            self._menu.close()
+            QTimer.singleShot(
+                0,
+                lambda: self._apply_profile_monitoring_toggle(profile_name, target),
+            )
+            return
+
+        self._menu.close()
+
+    def _apply_profile_monitoring_toggle(self, profile_name: str, target: bool) -> None:
+        status = self._profiles.get(profile_name)
+        if status is None:
+            return
+
+        if self._on_toggle_profile_monitoring is not None:
+            try:
+                self._on_toggle_profile_monitoring(profile_name, target)
+            except Exception as exc:
+                logger.error(
+                    "profile monitoring toggle failed",
+                    extra={
+                        "event": "profile_monitoring_toggle_failed",
+                        "profile": profile_name,
+                        "monitoring_enabled": target,
+                        "error": str(exc),
+                    },
+                )
+                return
+
+        updated = replace(status, monitoring_enabled=target)
+        if target and status.state is ProfileState.OK and not status.monitoring_enabled:
+            updated = replace(updated, state=ProfileState.SYNCING)
+        self._profiles[profile_name] = updated
+        if self._status_window is not None:
+            self._status_window.update_profile(updated)
+        self._recount_ok_profiles()
+        self._update_icon_state()
+        self._throttled_tooltip_update()
+        QTimer.singleShot(200, self._rebuild_menu)
 
     def _on_quit_triggered(self) -> None:
         if self._on_quit is not None:
@@ -936,7 +1004,9 @@ class StatusTray:
         self._details_dialog.show()
 
     def _effective_state(self, status: ProfileStatus) -> ProfileState:
-        if not self._monitoring_enabled and status.state == ProfileState.OK:
+        if (
+            not self._monitoring_enabled or not status.monitoring_enabled
+        ) and status.state == ProfileState.OK:
             return ProfileState.PAUSED_OK
         return status.state
 
@@ -945,15 +1015,28 @@ class StatusTray:
         name = status.profile_name
 
         if state == ProfileState.SYNCING:
-            return f"Profile: {name} - Sync"
+            return f"{name} - Syncing..."
         if state == ProfileState.WARNING:
-            return f"Profile: {name} - Warning"
+            return f"{name} - Warning -> Show details"
         if state == ProfileState.ERROR:
-            return f"Profile: {name} - Error"
+            return f"{name} - Error -> Show details"
+        if not self._monitoring_enabled and status.state == ProfileState.OK:
+            if status.monitoring_enabled:
+                return f"{name} - OK (global pause)"
+            return f"{name} - OK (paused, global pause)"
         if state == ProfileState.PAUSED_OK:
-            return f"Profile: {name} - OK"
+            return f"{name} - OK (paused) -> Resume monitoring"
 
-        return f"Profile: {name} - OK"
+        return f"{name} - OK -> Pause monitoring"
+
+    def _is_profile_actionable(self, status: ProfileStatus) -> bool:
+        state = self._effective_state(status)
+
+        if state in (ProfileState.WARNING, ProfileState.ERROR):
+            return True
+        if not self._monitoring_enabled:
+            return False
+        return status.state == ProfileState.OK
 
     def _icon_for_state(self, state: ProfileState) -> QIcon:
         style = QApplication.style()
@@ -963,6 +1046,8 @@ class StatusTray:
             return style.standardIcon(QStyle.SP_MessageBoxWarning)
         if state == ProfileState.SYNCING:
             return style.standardIcon(QStyle.SP_BrowserReload)
+        if state == ProfileState.PAUSED_OK:
+            return style.standardIcon(QStyle.SP_MediaPause)
         return style.standardIcon(QStyle.SP_DialogApplyButton)
 
     def _update_tooltip(self) -> None:
