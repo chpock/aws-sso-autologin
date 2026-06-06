@@ -22,6 +22,7 @@ UX spec approved - round 15 - 2026-06-05
 UX spec approved - round 16 - 2026-06-06
 UX spec approved - round 17 - 2026-06-06
 UX spec approved - round 18 - 2026-06-06
+UX spec approved - round 19 - 2026-06-06
 Design-interrogation pass complete - round 1 - 2026-05-09
 
 ## Design-interrogation notes
@@ -144,7 +145,7 @@ Recovery path: after the blocking condition is resolved, first row returns to th
 ### Flow 5 - Profile row interaction
 1. User selects profile row.
 2. If profile is OK and running, the row label advertises `Pause monitoring`; selecting it closes the menu, pauses the profile, and future checks for that profile are skipped across restarts.
-3. If profile is OK (paused) because that profile was individually paused and global monitoring is enabled, the row label advertises `Resume monitoring`; selecting it closes the menu, resumes the profile, and future checks for that profile run again.
+3. If profile is OK (paused) because that profile was individually paused and global monitoring is enabled, the row label advertises `Resume monitoring`; selecting it closes the menu, resumes the profile, and the row moves to `Syncing...` until a fresh status result arrives.
 4. If profile is Warning or Error, the row label advertises `Show details`; selecting it opens diagnostics and does not toggle monitoring.
 
 Global-pause path: when the first-row global control has paused monitoring, profile rows show explicit global-pause copy such as `OK (global pause)` and are disabled when no per-profile action is available. Persisted per-profile state is retained underneath, but the persisted global paused state takes visual and behavioral precedence until global monitoring is enabled again.
@@ -212,7 +213,7 @@ Reference strings:
 - CLI check-only failure: `Startup preflight failed. See structured event logs for tray host or AWS readiness details.`
 - Settings precedence note: `Effective logging settings: level=<...>, format=<...>, source=<config|cli|default>.`
 - Error: `Auto-login failed for profile "<name>". Click to view full diagnostics.`
-- Success: `Profile: <name> - OK, last refresh: <duration>`
+- Success: `<name> - OK -> Pause monitoring`
 - Empty state: `No SSO profiles detected. Monitoring profile sources for changes.`
 - Startup version event: `event=app_started version=<X.Y.Z> source=<embedded|default>`
 - Global compatibility error: `AWS CLI v2 is required. Current version is unsupported.`

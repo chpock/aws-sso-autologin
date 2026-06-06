@@ -23,6 +23,7 @@ Product spec approved - round 16 - 2026-06-06
 Product spec approved - round 17 - 2026-06-06
 Product spec approved - round 18 - 2026-06-06
 Product spec approved - round 19 - 2026-06-06
+Product spec approved - round 20 - 2026-06-06
 
 ## Problem
 Users with multiple AWS SSO profiles lose active sessions during normal work and must manually run `aws sso login` per profile. This tool should run as a tray-only Linux/Wayland desktop app, monitor SSO session validity, and perform controlled auto-login when an SSO session is explicitly expired or invalid.
@@ -75,6 +76,7 @@ Users with multiple AWS SSO profiles lose active sessions during normal work and
 - Tray profile row UX contract is mandatory:
   - row text must show both the current state and the action that will happen on selection when the row is actionable,
   - healthy actionable examples: `<name> - OK -> Pause monitoring` and `<name> - OK (paused) -> Resume monitoring`,
+  - after resuming an individually paused healthy profile, that row must move into an explicit pending state such as `<name> - Syncing...` until a fresh status result arrives,
   - warning/error examples: `<name> - Warning -> Show details` and `<name> - Error -> Show details`,
   - if no per-profile action is currently available (for example while global monitoring is paused or a row is syncing), the row must use explicit state copy and be visibly disabled.
 - When monitoring is disabled by user:
@@ -188,6 +190,7 @@ Implement Approach A. It matches current requirements with the best complexity-t
 ### Session checking and login
 - Every 30 seconds run `aws sts get-caller-identity --profile <profile>` for each tracked SSO profile whose per-profile monitoring state is running.
 - Profiles with per-profile monitoring paused are skipped by scheduled and forced checks until resumed.
+- When an individually paused profile is resumed, the UI must show a pending refresh state until the next fresh session-check result is received; it must not optimistically show healthy OK before that result arrives.
 - `sts_check` subprocess concurrency is capped at 8 in-flight processes globally.
 - Concurrency cap vs cadence validation: at 100 profiles, 30-second cycle, and 8-process cap, average per-check duration must not exceed 240 ms to maintain cadence,
 - Per-check latency telemetry is mandatory: record `sts_check` duration per profile; if p95 per-check duration exceeds (30s × 8 ÷ profile_count), trigger observability alert `sts_check_capacity_exceeded` for capacity planning review.
@@ -247,6 +250,7 @@ Implement Approach A. It matches current requirements with the best complexity-t
 - State directory permissions must be owner-only (`0700`), and state file permissions must be owner read/write (`0600`).
 - State writes must be atomic via a temporary file in the same directory followed by replace.
 - The state path must not follow symlinks in the state file or any existing parent directory; symlinked state-path components are ignored on read and refused on write.
+- Refused state writes must fail loudly to callers so runtime toggle rollback can execute instead of silently pretending persistence succeeded.
 - Orphaned profile state entries for profiles that are no longer discovered are retained for future reuse.
 - Safe mode remains a runtime override for the current launch and does not silently rewrite the persisted global monitoring preference.
 - Normal application tests must not read or write the real user state path; tests use in-memory state or temporary paths.

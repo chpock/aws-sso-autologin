@@ -91,6 +91,7 @@ Once running, the application appears in your system tray:
 - **Profile list**: Shows current profile state and the next action together in the row label
   - Example active row: `dev - OK -> Pause monitoring`
   - Example paused row: `dev - OK (paused) -> Resume monitoring`
+  - After resuming an individually paused profile, the row becomes `dev - Syncing...` until a fresh status check completes
   - Example diagnostics row: `dev - Error -> Show details`
   - While global monitoring is paused, rows with no per-profile action show explicit global-pause copy and are visually disabled
   - Profiles overflow into deterministic submenus when count exceeds 40
@@ -263,7 +264,7 @@ Global and per-profile paused/running state are persisted in a JSON state file:
 - Fallback path: `~/.local/state/aws-sso-autologin/state.json`
 - Schema: versioned JSON with a top-level `global` section plus profile entries under `profiles`, designed for future state values
 - Permissions: state directory `0700`, state file `0600`
-- Safety: symlink state files are ignored/refused, and writes are atomic
+- Safety: symlinked state-path components are ignored on read, refused on write, and normal writes are atomic
 
 When global monitoring is paused, it takes precedence over all per-profile states until resumed. Safe mode is still a runtime-only override for that run. Tests use in-memory or temporary state, so your normal state file does not affect test runs.
 
